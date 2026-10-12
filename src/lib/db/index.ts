@@ -5,7 +5,7 @@ import { supabase } from "@/integrations/supabase/client";
 import type {
   ActivityKind, ActivityLogEntry, Assignment, Course, DetectedItem, EstimateEvent,
   LmsConnection, NewAssignment, NewCourse, NewDetectedItem, NewEstimateEvent,
-  NewLmsConnection, NewStep, Step, StepStatus, UserSettings,
+  NewLmsConnection, NewStep, NewWeeklyAllocation, Step, StepStatus, UserSettings, WeeklyAllocation,
 } from "@/types/nextstep";
 
 // The generated Supabase types may lag behind migrations, so we use an untyped
@@ -92,6 +92,26 @@ export async function createSteps(steps: NewStep[]): Promise<Step[]> {
 }
 export async function setStepStatus(id: string, status: StepStatus): Promise<Step> {
   return unwrap(await db.from("steps").update({ status }).eq("id", id).select().single());
+}
+
+// ---------- weekly_allocations ----------
+export async function listWeeklyAllocations(weekStart?: string): Promise<WeeklyAllocation[]> {
+  let q = db.from("weekly_allocations").select("*").order("week_start", { ascending: false });
+  if (weekStart) q = q.eq("week_start", weekStart);
+  return unwrap(await q);
+}
+export async function upsertWeeklyAllocation(input: NewWeeklyAllocation): Promise<WeeklyAllocation> {
+  const user_id = await currentUserId();
+  return unwrap(
+    await db
+      .from("weekly_allocations")
+      .upsert({ user_id, ...input }, { onConflict: "user_id,assignment_id,week_start" })
+      .select()
+      .single(),
+  );
+}
+export async function deleteWeeklyAllocation(id: string): Promise<void> {
+  unwrap(await db.from("weekly_allocations").delete().eq("id", id));
 }
 
 // ---------- estimate_events ----------

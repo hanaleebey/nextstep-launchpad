@@ -45,6 +45,7 @@ export type Database = {
           course_id: string | null
           created_at: string
           due_at: string | null
+          estimate_source: string | null
           estimated_is_manual: boolean
           estimated_minutes: number | null
           id: string
@@ -61,6 +62,7 @@ export type Database = {
           course_id?: string | null
           created_at?: string
           due_at?: string | null
+          estimate_source?: string | null
           estimated_is_manual?: boolean
           estimated_minutes?: number | null
           id?: string
@@ -77,6 +79,7 @@ export type Database = {
           course_id?: string | null
           created_at?: string
           due_at?: string | null
+          estimate_source?: string | null
           estimated_is_manual?: boolean
           estimated_minutes?: number | null
           id?: string
@@ -313,6 +316,44 @@ export type Database = {
           weekly_available_hours?: number
         }
         Relationships: []
+      }
+      weekly_allocations: {
+        Row: {
+          allocated_minutes: number
+          assignment_id: string
+          created_at: string
+          id: string
+          updated_at: string
+          user_id: string
+          week_start: string
+        }
+        Insert: {
+          allocated_minutes?: number
+          assignment_id: string
+          created_at?: string
+          id?: string
+          updated_at?: string
+          user_id?: string
+          week_start: string
+        }
+        Update: {
+          allocated_minutes?: number
+          assignment_id?: string
+          created_at?: string
+          id?: string
+          updated_at?: string
+          user_id?: string
+          week_start?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "weekly_allocations_assignment_id_fkey"
+            columns: ["assignment_id"]
+            isOneToOne: false
+            referencedRelation: "assignments"
+            referencedColumns: ["id"]
+          },
+        ]
       }
     }
     Views: {
