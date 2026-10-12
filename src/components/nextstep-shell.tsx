@@ -1,8 +1,19 @@
-import { Cable, Clock3, Map, Play, Settings, UserRound } from "lucide-react";
+import { Cable, Clock3, LogOut, Map, Play, Settings, UserRound } from "lucide-react";
+import { useNavigate } from "@tanstack/react-router";
+import { useQueryClient } from "@tanstack/react-query";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { PlaceholderPanel } from "@/components/placeholder-panel";
+import { supabase } from "@/integrations/supabase/client";
 
-export function NextStepShell() {
+export function NextStepShell({ email }: { email: string }) {
+  const navigate = useNavigate();
+  const queryClient = useQueryClient();
+  async function signOut() {
+    await queryClient.cancelQueries();
+    queryClient.clear();
+    await supabase.auth.signOut();
+    navigate({ to: "/auth", replace: true });
+  }
   return (
     <Tabs defaultValue="map" className="nextstep-shell">
       <header className="shell-topbar">
@@ -19,7 +30,9 @@ export function NextStepShell() {
         </TabsList>
         <div className="shell-account">
           <span className="connection-status"><span className="status-dot" aria-hidden="true" />Not connected</span>
-          <div className="user-avatar" role="img" aria-label="User avatar"><UserRound size={17} strokeWidth={1.8} aria-hidden="true" /></div>
+          <span className="text-sm text-muted-foreground" title={email}>{email}</span>
+          <div className="user-avatar" role="img" aria-label={`Signed in as ${email}`}><UserRound size={17} strokeWidth={1.8} aria-hidden="true" /></div>
+          <button type="button" onClick={signOut} aria-label="Sign out" className="rounded-full p-2 text-muted-foreground hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring"><LogOut size={17} aria-hidden="true" /></button>
         </div>
       </header>
       <main className="shell-container">
