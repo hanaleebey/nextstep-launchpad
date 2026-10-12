@@ -14,13 +14,25 @@ function isOpenEnded(a: Assignment): boolean {
   return !a.estimated_is_manual && a.estimate_source !== "signal";
 }
 
+/** Calendar date of `d` in the given timezone, as "YYYY-MM-DD". */
+function toISODateUTC(d: Date, timeZone: string): string {
+  return new Intl.DateTimeFormat("en-CA", { timeZone, year: "numeric", month: "2-digit", day: "2-digit" }).format(d);
+}
+
 function toISODate(d: Date): string {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 }
 
-export async function recomputeWeeklyAllocations(now = new Date()): Promise<AllocationResult> {
+/**
+ * @param horizon Optional week to plan for. Defaults to the local Mon–Sun week;
+ *                the Settings page passes the week in the user's timezone.
+ */
+export async function recomputeWeeklyAllocations(
+  now = new Date(),
+  horizon?: { start: Date; end: Date },
+): Promise<AllocationResult & { weekStart: string }> {
   const settings = await getSettings();
-  const { start, end } = weekHorizon(now);
+  const { start, end } = horizon ?? weekHorizon(now);
   const active = (await listAssignments()).filter((a) => a.status !== "done");
 
   const result = allocateWeek({
@@ -35,7 +47,7 @@ export async function recomputeWeeklyAllocations(now = new Date()): Promise<Allo
     openEndedItems: active.filter(isOpenEnded).map((a) => ({ id: a.id, dueAt: a.due_at })),
   });
 
-  const weekStart = toISODate(start);
+  const weekStart = horizon ? toISODateUTC(start, settings?.timezone ?? "UTC") : toISODate(start);
   const keep = new Set(result.allocations.map((x) => x.id));
 
   // One row per assignment per week; set the effective estimate.
@@ -54,5 +66,5 @@ export async function recomputeWeeklyAllocations(now = new Date()): Promise<Allo
       ? `Over capacity this week: ${result.signalLoad} min of fixed work vs ${result.capacity} min available.`
       : `Allocated ${result.free} free minutes across ${result.allocations.length} open-ended item(s).`,
   );
-  return result;
+  return { ...result, weekStart };
 }

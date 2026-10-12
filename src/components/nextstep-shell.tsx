@@ -6,13 +6,21 @@ import { PlaceholderPanel } from "@/components/placeholder-panel";
 import { MapView } from "@/components/map-view";
 import { ExecuteView } from "@/components/execute-view";
 import { BehindView } from "@/components/behind-view";
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 import { supabase } from "@/integrations/supabase/client";
 
-export function NextStepShell({ email }: { email: string }) {
+// The shell hosts the tab views on "/" and, when `children` is given, a
+// standalone page (e.g. /settings) in the same frame. Settings is a real route,
+// so its nav item navigates instead of switching a tab.
+export function NextStepShell({ email, initialTab = "map", children }: { email: string; initialTab?: string | undefined; children?: ReactNode }) {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
-  const [tab, setTab] = useState("map");
+  const [tab, setTab] = useState(children ? "settings" : initialTab ?? "map");
+  function changeTab(value: string) {
+    if (value === "settings") navigate({ to: "/settings" });
+    else if (children) navigate({ to: "/", search: { tab: value } });
+    else setTab(value);
+  }
   async function signOut() {
     await queryClient.cancelQueries();
     queryClient.clear();
@@ -20,7 +28,7 @@ export function NextStepShell({ email }: { email: string }) {
     navigate({ to: "/auth", replace: true });
   }
   return (
-    <Tabs value={tab} onValueChange={setTab} className="nextstep-shell">
+    <Tabs value={tab} onValueChange={changeTab} className="nextstep-shell">
       <header className="shell-topbar">
         <div className="shell-brand" aria-label="NextStep — Executive-function coach">
           <div className="brand-logo" aria-hidden="true">N</div>
@@ -41,11 +49,12 @@ export function NextStepShell({ email }: { email: string }) {
         </div>
       </header>
       <main className="shell-container">
+        {children ?? (<>
         <TabsContent value="map"><MapView onOpen={() => setTab("execute")} /></TabsContent>
         <TabsContent value="execute"><ExecuteView /></TabsContent>
         <TabsContent value="behind"><BehindView /></TabsContent>
         <TabsContent value="connect"><div className="page-heading"><h1>Connect</h1></div><PlaceholderPanel title="Connect" icon={Cable} /></TabsContent>
-        <TabsContent value="settings"><div className="page-heading"><h1>Settings</h1></div><PlaceholderPanel title="Settings" icon={Settings} /></TabsContent>
+                </>)}
       </main>
     </Tabs>
   );
