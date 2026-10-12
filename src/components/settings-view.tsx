@@ -48,18 +48,13 @@ export function SettingsView() {
   const settingsQ = useQuery({ queryKey: ["settings"], queryFn: loadSettings });
 
   const [hours, setHours] = useState("20");
-  const [start, setStart] = useState("09:00");
-  const [end, setEnd] = useState("21:00");
-  const [tz, setTz] = useState("UTC");
+  const [tz, setTz] = useState(defaultTimezone);
   const [saving, setSaving] = useState(false);
-  const tzList = useMemo(timezones, []);
 
   useEffect(() => {
     const s = settingsQ.data;
     if (!s) return;
     setHours(String(s.weekly_available_hours));
-    setStart(s.study_window_start.slice(0, 5));
-    setEnd(s.study_window_end.slice(0, 5));
     setTz(s.timezone);
   }, [settingsQ.data]);
 
@@ -72,7 +67,7 @@ export function SettingsView() {
     }
     setSaving(true);
     try {
-      await saveSettings({ weekly_available_hours: h, study_window_start: start, study_window_end: end, timezone: tz });
+      await saveSettings({ weekly_available_hours: h, timezone: tz });
       await queryClient.invalidateQueries({ queryKey: ["settings"] });
       toast.success("Settings saved");
     } catch (err) {
