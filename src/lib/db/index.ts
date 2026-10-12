@@ -90,6 +90,10 @@ export async function listSteps(assignmentId: string): Promise<Step[]> {
 export async function createSteps(steps: NewStep[]): Promise<Step[]> {
   return unwrap(await db.from("steps").insert(steps).select());
 }
+/** Remove only the not-yet-started steps of an assignment (finished history is kept). */
+export async function deleteTodoSteps(assignmentId: string): Promise<void> {
+  unwrap(await db.from("steps").delete().eq("assignment_id", assignmentId).eq("status", "todo"));
+}
 export async function setStepStatus(id: string, status: StepStatus): Promise<Step> {
   return unwrap(await db.from("steps").update({ status }).eq("id", id).select().single());
 }
