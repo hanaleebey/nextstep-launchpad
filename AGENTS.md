@@ -17,3 +17,6 @@
 ## Data layer
 - Domain types live in `src/types/`; all database reads/writes go through `src/lib/db/` so views never query tables directly.
 - Every table is owner-scoped by RLS (child tables via their assignment), so repository functions don't filter by user themselves.
+
+## LMS layer
+- All LMS data comes from `getLmsProvider()` in `src/lib/lms/` (implements `LmsProvider`); components never fetch or call an LMS directly, so providers can be swapped.
