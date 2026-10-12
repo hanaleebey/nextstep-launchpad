@@ -62,7 +62,7 @@ export function BehindView() {
   const feed = [
     `Detected that "${behind.a.title}" has no buffer left`,
     `Compared ${fmtMinutes(behind.remaining)} of remaining work with ${hoursLeft}h until the deadline`,
-    `Prepared ${OPTIONS.length} re-plan options and recommended "${OPTIONS[0].title}"`,
+    `Prepared ${OPTIONS.length} re-plan options and recommended "Triage now"`,
     "Held off changing your schedule until you choose",
   ];
 
