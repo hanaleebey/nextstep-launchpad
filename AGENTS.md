@@ -20,3 +20,5 @@
 
 ## LMS layer
 - All LMS data comes from `getLmsProvider()` in `src/lib/lms/` (implements `LmsProvider`); components never fetch or call an LMS directly, so providers can be swapped.
+- Settings is its own route (`/_authenticated/settings`) rendered inside NextStepShell via `children`; the other surfaces stay tabs on `/` (selected via `?tab=`).
+- Dev-only helpers live in `src/lib/dev/` and are only loaded via dynamic import behind `import.meta.env.DEV`, so they never ship.

@@ -326,3 +326,16 @@
 .behind-impact { list-style: none; padding: 0; display: grid; gap: 12px; font-size: .85rem; }
 .behind-impact li { display: grid; gap: 6px; }
 .behind-chips { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; color: var(--muted); }
+
+/* ---------- Settings ---------- */
+.settings-form { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 16px; align-items: end; }
+.settings-form label { display: grid; gap: 6px; font-size: .85rem; font-weight: 600; color: var(--ink); }
+.settings-form input, .settings-form select { height: 40px; padding: 0 12px; border: 1px solid var(--border); border-radius: 10px; background: var(--surface); color: var(--ink); font-weight: 400; }
+.settings-form input:focus-visible, .settings-form select:focus-visible { outline: 2px solid var(--primary); outline-offset: 1px; }
+.settings-panel-head { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 12px; margin-bottom: 12px; }
+.settings-panel-head h2 { margin-bottom: 0; }
+.settings-table-wrap { overflow-x: auto; }
+.settings-table { width: 100%; border-collapse: collapse; font-size: .88rem; }
+.settings-table th { text-align: left; color: var(--muted); font-weight: 600; padding: 8px; border-bottom: 1px solid var(--border); }
+.settings-table td { padding: 10px 8px; border-bottom: 1px solid var(--border); color: var(--ink); }
+.exec-btn:disabled { opacity: .6; }
