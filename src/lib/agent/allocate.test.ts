@@ -68,7 +68,7 @@ describe("floor / cap clamping", () => {
     }));
     const total = r.allocations.reduce((s, a) => s + a.minutes, 0);
     expect(total).toBeLessThanOrEqual(r.free);
-    expect(r.floorsExceedFree).toBe(false); // 3 × 30 = 90 > 60? → true below
+    expect(r.floorsExceedFree).toBe(true); // 3 × 30-min floors = 90 > 60 free
   });
 });
 
