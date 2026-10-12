@@ -23,6 +23,9 @@ function toISODate(d: Date): string {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 }
 
+/** Why an item received 0 allocated minutes (shown per row on Settings). */
+export type ZeroReason = "fixed work (signal)" | "fixed work (manual)" | "no free capacity" | "over capacity";
+
 /**
  * @param horizon Optional week to plan for. Defaults to the local Mon–Sun week;
  *                the Settings page passes the week in the user's timezone.
@@ -30,7 +33,7 @@ function toISODate(d: Date): string {
 export async function recomputeWeeklyAllocations(
   now = new Date(),
   horizon?: { start: Date; end: Date },
-): Promise<AllocationResult & { weekStart: string }> {
+): Promise<AllocationResult & { weekStart: string; reasons: Record<string, ZeroReason> }> {
   const settings = await getSettings();
   const { start, end } = horizon ?? weekHorizon(now);
   const active = (await listAssignments()).filter((a) => a.status !== "done");
@@ -50,10 +53,31 @@ export async function recomputeWeeklyAllocations(
   const weekStart = horizon ? toISODateUTC(start, settings?.timezone ?? "UTC") : toISODate(start);
   const keep = new Set(result.allocations.map((x) => x.id));
 
+  // Debug trace so a silent "nothing allocated" is visible in the console.
+  console.info("[allocate] week", weekStart, "result", result,
+    "map", Object.fromEntries(result.allocations.map((x) => [x.id, x.minutes])));
+
   // One row per assignment per week; set the effective estimate.
+  // Errors propagate (the caller shows them as a toast) — never fail silently.
   for (const { id, minutes } of result.allocations) {
-    await upsertWeeklyAllocation({ assignment_id: id, week_start: weekStart, allocated_minutes: minutes });
-    await updateAssignment(id, { estimated_minutes: minutes, estimate_source: "allocated" });
+    try {
+      const row = await upsertWeeklyAllocation({ assignment_id: id, week_start: weekStart, allocated_minutes: minutes });
+      console.info("[allocate] upserted", row);
+      await updateAssignment(id, { estimated_minutes: minutes, estimate_source: "allocated" });
+    } catch (err) {
+      console.error("[allocate] persist failed for", id, err);
+      throw new Error(`Saving allocation failed: ${err instanceof Error ? err.message : String(err)}`);
+    }
+  }
+
+  // Per-row reason for every item that ends up with 0 minutes.
+  const reasons: Record<string, ZeroReason> = {};
+  for (const a of active) {
+    if (a.estimated_is_manual) reasons[a.id] = "fixed work (manual)";
+    else if (a.estimate_source === "signal") reasons[a.id] = "fixed work (signal)";
+  }
+  for (const { id, minutes } of result.allocations) {
+    if (minutes === 0) reasons[id] = result.overCapacity ? "over capacity" : "no free capacity";
   }
   // Drop this week's rows for items that no longer need a slice (e.g. completed).
   for (const row of await listWeeklyAllocations(weekStart)) {
@@ -66,5 +90,5 @@ export async function recomputeWeeklyAllocations(
       ? `Over capacity this week: ${result.signalLoad} min of fixed work vs ${result.capacity} min available.`
       : `Allocated ${result.free} free minutes across ${result.allocations.length} open-ended item(s).`,
   );
-  return { ...result, weekStart };
+  return { ...result, weekStart, reasons };
 }

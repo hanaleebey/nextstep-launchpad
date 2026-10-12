@@ -8,7 +8,7 @@ import { ensureDefaultSettings, getSettings, listAssignments, listCourses, listW
 import { recomputeWeeklyAllocations } from "@/lib/agent/allocate-persist";
 import { isDueInHorizon } from "@/lib/agent/allocate";
 import { weekInTimezone } from "@/lib/time/week-in-timezone";
-import type { AllocationResult } from "@/lib/agent/allocate";
+type Result = Awaited<ReturnType<typeof recomputeWeeklyAllocations>>;
 
 /** Load the row; create it with column defaults if missing. */
 async function loadSettings() {
@@ -123,7 +123,7 @@ async function loadWeek(timezone: string) {
 function AllocationPanel({ timezone }: { timezone: string }) {
   const queryClient = useQueryClient();
   const weekQ = useQuery({ queryKey: ["week-allocation", timezone], queryFn: () => loadWeek(timezone) });
-  const [result, setResult] = useState<AllocationResult | null>(null);
+  const [result, setResult] = useState<Result | null>(null);
   const [busy, setBusy] = useState(false);
 
   async function recompute() {
@@ -144,7 +144,7 @@ function AllocationPanel({ timezone }: { timezone: string }) {
     try {
       const n = await loadDemoWeek();
       toast.success(n ? `Added ${n} demo assignments` : "Demo week already loaded");
-      await queryClient.invalidateQueries({ queryKey: ["week-allocation"] });
+      await recompute(); // one click shows the allocation
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Couldn't load demo week");
     }
@@ -177,9 +177,12 @@ function AllocationPanel({ timezone }: { timezone: string }) {
       )}
 
       {result && (
-        <p className="map-meta" role="status" style={{ marginBottom: 12 }}>
-          Weekly capacity {result.capacity} min · fixed {result.signalLoad} min (signal + manual) · allocated {allocatedTotal} min · free left {Math.max(0, result.free - allocatedTotal)} min
-        </p>
+        <dl className="map-meta" role="status" style={{ marginBottom: 12, display: "flex", flexWrap: "wrap", gap: "4px 20px" }}>
+          <div><dt style={{ display: "inline" }}>Capacity: </dt><dd style={{ display: "inline" }} className="tabular-nums">{result.capacity} min</dd></div>
+          <div><dt style={{ display: "inline" }}>Fixed (signal + manual): </dt><dd style={{ display: "inline" }} className="tabular-nums">{result.signalLoad} min</dd></div>
+          <div><dt style={{ display: "inline" }}>Free: </dt><dd style={{ display: "inline" }} className="tabular-nums">{Math.max(0, result.capacity - result.signalLoad)} min</dd></div>
+          <div><dt style={{ display: "inline" }}>Allocated: </dt><dd style={{ display: "inline" }} className="tabular-nums">{allocatedTotal} min</dd></div>
+        </dl>
       )}
 
       {weekQ.isLoading ? (
@@ -199,7 +202,9 @@ function AllocationPanel({ timezone }: { timezone: string }) {
                   <td>{course}</td>
                   <td>{fmtDue(a.due_at)}</td>
                   <td>{a.estimate_source ?? "—"}</td>
-                  <td className="tabular-nums">{allocated === null ? "—" : `${allocated} min`}</td>
+                  <td className="tabular-nums">
+                    {allocated ? `${allocated} min` : result?.reasons[a.id] ? `0 min — ${result.reasons[a.id]}` : allocated === 0 ? "0 min" : "—"}
+                  </td>
                 </tr>
               ))}
             </tbody>
