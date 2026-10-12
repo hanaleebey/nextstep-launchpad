@@ -92,15 +92,9 @@ export function SettingsView() {
             <label>Weekly available hours
               <input type="number" step={0.5} min={0} max={80} required value={hours} onChange={(e) => setHours(e.target.value)} />
             </label>
-            <label>Study window start
-              <input type="time" required value={start} onChange={(e) => setStart(e.target.value)} />
-            </label>
-            <label>Study window end
-              <input type="time" required value={end} onChange={(e) => setEnd(e.target.value)} />
-            </label>
             <label>Timezone
               <select value={tz} onChange={(e) => setTz(e.target.value)}>
-                {tzList.map((z) => <option key={z} value={z}>{z}</option>)}
+                {TIMEZONES.map((t) => <option key={t.id} value={t.id}>{t.label}</option>)}
               </select>
             </label>
             <div><button type="submit" className="exec-btn behind-accept" disabled={saving}>{saving ? "Saving…" : "Save"}</button></div>
