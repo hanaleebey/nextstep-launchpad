@@ -308,3 +308,21 @@
 .exec-dl dt { color: var(--muted); }
 .exec-dl dd { color: var(--ink); text-align: right; font-weight: 600; }
 @media (max-width: 999px) { .exec-grid { grid-template-columns: 1fr; } }
+
+/* ---------- Running behind tab ---------- */
+.behind-alert { display: flex; gap: 14px; align-items: flex-start; padding: 18px 20px; border-radius: var(--radius); background: var(--red-bg); color: var(--red); border: 1px solid color-mix(in oklch, var(--red) 30%, transparent); }
+.behind-alert h1 { font-size: 1.15rem; font-weight: 700; }
+.behind-alert p { color: var(--ink); margin-top: 4px; font-size: .92rem; }
+.behind-options { display: grid; gap: 10px; }
+.behind-option { text-align: left; display: grid; gap: 6px; padding: 14px 16px; border-radius: calc(var(--radius) - 4px); border: 1px solid var(--border); background: var(--surface-2); }
+.behind-option:hover { border-color: var(--primary); }
+.behind-option:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
+.behind-option.is-selected { border: 2px solid var(--primary); background: var(--primary-50); }
+.behind-option-head { display: flex; align-items: center; gap: 10px; font-weight: 650; color: var(--ink); }
+.behind-option-body { color: var(--muted); font-size: .88rem; padding-left: 30px; }
+.behind-radio { width: 20px; height: 20px; border-radius: 999px; border: 2px solid var(--faint); display: inline-grid; place-items: center; color: var(--primary); }
+.is-selected .behind-radio { border-color: var(--primary); }
+.behind-accept { background: var(--primary); color: var(--surface); }
+.behind-impact { list-style: none; padding: 0; display: grid; gap: 12px; font-size: .85rem; }
+.behind-impact li { display: grid; gap: 6px; }
+.behind-chips { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; color: var(--muted); }

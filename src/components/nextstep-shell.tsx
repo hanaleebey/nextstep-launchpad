@@ -5,6 +5,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { PlaceholderPanel } from "@/components/placeholder-panel";
 import { MapView } from "@/components/map-view";
 import { ExecuteView } from "@/components/execute-view";
+import { BehindView } from "@/components/behind-view";
 import { useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 
@@ -42,7 +43,7 @@ export function NextStepShell({ email }: { email: string }) {
       <main className="shell-container">
         <TabsContent value="map"><MapView onOpen={() => setTab("execute")} /></TabsContent>
         <TabsContent value="execute"><ExecuteView /></TabsContent>
-        <TabsContent value="behind"><div className="page-heading"><h1>Running behind</h1></div><PlaceholderPanel title="Running behind" icon={Clock3} /></TabsContent>
+        <TabsContent value="behind"><BehindView /></TabsContent>
         <TabsContent value="connect"><div className="page-heading"><h1>Connect</h1></div><PlaceholderPanel title="Connect" icon={Cable} /></TabsContent>
         <TabsContent value="settings"><div className="page-heading"><h1>Settings</h1></div><PlaceholderPanel title="Settings" icon={Settings} /></TabsContent>
       </main>
