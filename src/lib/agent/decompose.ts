@@ -137,10 +137,10 @@ export function splitByWeight(total: number, weights: number[]): number[] {
   for (let pass = 0; pass < weights.length; pass++) {
     const open = weights.map((w, i) => (result[i] === null ? i : -1)).filter((i) => i >= 0);
     if (open.length === 0) break;
-    const wSum = open.reduce((s, i) => s + weights[i], 0);
+    const wSum = open.reduce((s, i) => s + (weights[i] ?? 0), 0);
     let pinned = false;
     for (const i of open) {
-      const share = (remaining * weights[i]) / wSum;
+      const share = (remaining * (weights[i] ?? 0)) / wSum;
       if (share > MAX_TIMEBOX || share < MIN_TIMEBOX) {
         result[i] = share > MAX_TIMEBOX ? MAX_TIMEBOX : MIN_TIMEBOX;
         remaining -= result[i] as number;
@@ -148,7 +148,7 @@ export function splitByWeight(total: number, weights: number[]): number[] {
       }
     }
     if (!pinned) {
-      for (const i of open) result[i] = (remaining * weights[i]) / wSum;
+      for (const i of open) result[i] = (remaining * (weights[i] ?? 0)) / wSum;
       break;
     }
   }
@@ -177,7 +177,7 @@ export function decompose(input: DecomposeInput): DecomposedStep[] {
   return kept.map((step, idx) => ({
     order_index: idx,
     title: step.title,
-    timebox_minutes: minutes[idx],
+    timebox_minutes: minutes[idx] ?? MIN_TIMEBOX,
     done_criteria: [...step.done],
   }));
 }

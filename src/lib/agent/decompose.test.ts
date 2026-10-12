@@ -38,8 +38,8 @@ describe("decompose", () => {
 
   it("keeps the first and last essential steps when trimmed", () => {
     const steps = decompose({ ...base, type: "paper", estimatedMinutes: 60 });
-    expect(steps[0].title).toMatch(/prompt/i);
-    expect(steps[steps.length - 1].title).toMatch(/submit/i);
+    expect(steps[0]!.title).toMatch(/prompt/i);
+    expect(steps[steps.length - 1]!.title).toMatch(/submit/i);
   });
 
   it("uses the default total when no estimate is given", () => {
