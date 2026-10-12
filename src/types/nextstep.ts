@@ -13,8 +13,6 @@ export type EstimateSource = "signal" | "allocated" | "manual";
 export interface UserSettings {
   user_id: string;
   weekly_available_hours: number;
-  study_window_start: string; // "HH:MM:SS"
-  study_window_end: string;
   timezone: string;
   created_at: string;
   updated_at: string;

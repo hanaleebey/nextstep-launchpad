@@ -1,6 +1,6 @@
 // Settings page. Gathers inputs (users_settings) and displays engine outputs.
 // No planning logic lives here: allocation is done by src/lib/agent.
-import { useEffect, useMemo, useState, type FormEvent } from "react";
+import { useEffect, useState, type FormEvent } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { AlertTriangle, CalendarX2, Loader2, RefreshCw } from "lucide-react";
 import { toast } from "sonner";
@@ -18,9 +18,29 @@ async function loadSettings() {
   return getSettings();
 }
 
-function timezones(): string[] {
-  const list = typeof Intl.supportedValuesOf === "function" ? Intl.supportedValuesOf("timeZone") : [];
-  return ["UTC", ...list.filter((z) => z !== "UTC")];
+// Fixed list of standard-timezone options. Labels show standard-time offsets
+// (not DST); the stored IANA id handles DST automatically.
+const TIMEZONES: { label: string; id: string }[] = [
+  { label: "(UTC-10) Hawaii-Aleutian", id: "Pacific/Honolulu" },
+  { label: "(UTC-9) Alaska", id: "America/Anchorage" },
+  { label: "(UTC-8) Pacific Time", id: "America/Los_Angeles" },
+  { label: "(UTC-7) Mountain Time", id: "America/Denver" },
+  { label: "(UTC-7) Arizona (no DST)", id: "America/Phoenix" },
+  { label: "(UTC-6) Central Time", id: "America/Chicago" },
+  { label: "(UTC-5) Eastern Time", id: "America/New_York" },
+  { label: "(UTC+0) UTC", id: "UTC" },
+  { label: "(UTC+0) London / GMT", id: "Europe/London" },
+  { label: "(UTC+1) Central European Time", id: "Europe/Paris" },
+  { label: "(UTC+5:30) India Standard Time", id: "Asia/Kolkata" },
+  { label: "(UTC+8) China / Singapore", id: "Asia/Shanghai" },
+  { label: "(UTC+9) Japan Standard Time", id: "Asia/Tokyo" },
+  { label: "(UTC+10) Australia Eastern Time", id: "Australia/Sydney" },
+];
+
+/** Browser's zone if it's in the list, otherwise Eastern Time. */
+function defaultTimezone(): string {
+  const browser = Intl.DateTimeFormat().resolvedOptions().timeZone;
+  return TIMEZONES.some((t) => t.id === browser) ? browser : "America/New_York";
 }
 
 export function SettingsView() {
@@ -28,18 +48,13 @@ export function SettingsView() {
   const settingsQ = useQuery({ queryKey: ["settings"], queryFn: loadSettings });
 
   const [hours, setHours] = useState("20");
-  const [start, setStart] = useState("09:00");
-  const [end, setEnd] = useState("21:00");
-  const [tz, setTz] = useState("UTC");
+  const [tz, setTz] = useState(defaultTimezone);
   const [saving, setSaving] = useState(false);
-  const tzList = useMemo(timezones, []);
 
   useEffect(() => {
     const s = settingsQ.data;
     if (!s) return;
     setHours(String(s.weekly_available_hours));
-    setStart(s.study_window_start.slice(0, 5));
-    setEnd(s.study_window_end.slice(0, 5));
     setTz(s.timezone);
   }, [settingsQ.data]);
 
@@ -52,7 +67,7 @@ export function SettingsView() {
     }
     setSaving(true);
     try {
-      await saveSettings({ weekly_available_hours: h, study_window_start: start, study_window_end: end, timezone: tz });
+      await saveSettings({ weekly_available_hours: h, timezone: tz });
       await queryClient.invalidateQueries({ queryKey: ["settings"] });
       toast.success("Settings saved");
     } catch (err) {
@@ -77,15 +92,9 @@ export function SettingsView() {
             <label>Weekly available hours
               <input type="number" step={0.5} min={0} max={80} required value={hours} onChange={(e) => setHours(e.target.value)} />
             </label>
-            <label>Study window start
-              <input type="time" required value={start} onChange={(e) => setStart(e.target.value)} />
-            </label>
-            <label>Study window end
-              <input type="time" required value={end} onChange={(e) => setEnd(e.target.value)} />
-            </label>
             <label>Timezone
               <select value={tz} onChange={(e) => setTz(e.target.value)}>
-                {tzList.map((z) => <option key={z} value={z}>{z}</option>)}
+                {TIMEZONES.map((t) => <option key={t.id} value={t.id}>{t.label}</option>)}
               </select>
             </label>
             <div><button type="submit" className="exec-btn behind-accept" disabled={saving}>{saving ? "Saving…" : "Save"}</button></div>
