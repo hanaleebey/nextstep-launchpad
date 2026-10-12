@@ -8,6 +8,7 @@ export type StepStatus = "todo" | "done" | "blocked" | "stopped";
 export type ActivityKind = "sync" | "estimate" | "replan" | "calibrate";
 export type DetectedItemType = "video" | "read" | "quiz" | "paper" | "post";
 export type Confidence = "high" | "medium" | "low";
+export type EstimateSource = "signal" | "allocated" | "manual";
 
 export interface UserSettings {
   user_id: string;
@@ -49,6 +50,7 @@ export interface Assignment {
   due_at: string | null;
   status: AssignmentStatus;
   estimated_minutes: number | null;
+  estimate_source: EstimateSource | null;
   estimated_is_manual: boolean;
   actual_minutes: number;
   progress_pct: number;
@@ -101,6 +103,16 @@ export interface DetectedItem {
   updated_at: string;
 }
 
+export interface WeeklyAllocation {
+  id: string;
+  user_id: string;
+  assignment_id: string;
+  week_start: string; // ISO date "YYYY-MM-DD"
+  allocated_minutes: number;
+  created_at: string;
+  updated_at: string;
+}
+
 /** Fields the database fills in automatically; omit them on insert. */
 type Auto = "id" | "user_id" | "created_at" | "updated_at";
 export type NewCourse = Omit<Course, Auto>;
@@ -110,3 +122,4 @@ export type NewStep = Omit<Step, "id" | "created_at" | "updated_at" | "status"> 
 export type NewEstimateEvent = Omit<EstimateEvent, "id" | "created_at">;
 export type NewDetectedItem = Omit<DetectedItem, Auto | "confirmed"> & { confirmed?: boolean };
 export type NewLmsConnection = Omit<LmsConnection, Auto | "connected_at">;
+export type NewWeeklyAllocation = Omit<WeeklyAllocation, Auto>;
