@@ -12,4 +12,10 @@ export default defineConfig({
     // nitro/vite builds from this
     server: { entry: "server" },
   },
+  vite: {
+    // Pre-bundle sonner at startup. When Vite discovered it mid-session it
+    // re-optimized deps and the page briefly loaded two React copies
+    // ("Cannot read properties of null (reading 'useState')").
+    optimizeDeps: { include: ["sonner"] },
+  },
 });
