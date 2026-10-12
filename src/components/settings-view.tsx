@@ -1,6 +1,6 @@
 // Settings page. Gathers inputs (users_settings) and displays engine outputs.
 // No planning logic lives here: allocation is done by src/lib/agent.
-import { useEffect, useMemo, useState, type FormEvent } from "react";
+import { useEffect, useState, type FormEvent } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { AlertTriangle, CalendarX2, Loader2, RefreshCw } from "lucide-react";
 import { toast } from "sonner";
