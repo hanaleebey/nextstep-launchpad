@@ -3,11 +3,14 @@ import { useNavigate } from "@tanstack/react-router";
 import { useQueryClient } from "@tanstack/react-query";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { PlaceholderPanel } from "@/components/placeholder-panel";
+import { MapView } from "@/components/map-view";
+import { useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 
 export function NextStepShell({ email }: { email: string }) {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
+  const [tab, setTab] = useState("map");
   async function signOut() {
     await queryClient.cancelQueries();
     queryClient.clear();
@@ -15,7 +18,7 @@ export function NextStepShell({ email }: { email: string }) {
     navigate({ to: "/auth", replace: true });
   }
   return (
-    <Tabs defaultValue="map" className="nextstep-shell">
+    <Tabs value={tab} onValueChange={setTab} className="nextstep-shell">
       <header className="shell-topbar">
         <div className="shell-brand" aria-label="NextStep — Executive-function coach">
           <div className="brand-logo" aria-hidden="true">N</div>
@@ -36,7 +39,7 @@ export function NextStepShell({ email }: { email: string }) {
         </div>
       </header>
       <main className="shell-container">
-        <TabsContent value="map"><div className="page-heading"><h1>Map</h1></div><PlaceholderPanel title="Map" icon={Map} /></TabsContent>
+        <TabsContent value="map"><MapView onOpen={() => setTab("execute")} /></TabsContent>
         <TabsContent value="execute"><div className="page-heading"><h1>Execute</h1></div><PlaceholderPanel title="Execute" icon={Play} /></TabsContent>
         <TabsContent value="behind"><div className="page-heading"><h1>Running behind</h1></div><PlaceholderPanel title="Running behind" icon={Clock3} /></TabsContent>
         <TabsContent value="connect"><div className="page-heading"><h1>Connect</h1></div><PlaceholderPanel title="Connect" icon={Cable} /></TabsContent>

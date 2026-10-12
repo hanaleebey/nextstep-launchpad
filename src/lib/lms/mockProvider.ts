@@ -61,7 +61,7 @@ function seedAssignments(): Assignment[] {
     a("mkt210-v3", "mkt210", "Watch: Brand Positioning Lecture", "video", 2, 45),
     a("mkt210-cs", "mkt210", "Case Study: Patagonia", "paper", 6, 180, 3),
     a("mkt210-d2", "mkt210", "Discussion Post: Pricing Strategy", "post", 4, 40),
-    a("psy101-r6", "psy101", "Read: Chapter 6 — Memory", "read", 1.5, 60),
+    a("psy101-r6", "psy101", "Read: Chapter 6 — Memory", "read", 1.2, 90),
     a("psy101-q3", "psy101", "Quiz 3: Learning & Conditioning", "quiz", 5, 25),
     a("psy101-rp", "psy101", "Research Paper Proposal", "paper", 14, 300, 1),
     a("eng210-e2", "eng210", "Essay 2: Argumentative Draft", "paper", 8, 270, 2),

@@ -11,7 +11,7 @@
 
 ## App structure
 - Keep the NextStep shell and placeholder panels in `src/components/`, with the index route composing the shell; this separates presentation from routing.
-- Use uncontrolled design-system tabs for shell navigation, without app data or backend calls; the shell remains presentation-only.
+- Shell tabs are design-system Tabs with a single local `tab` state in the shell (so views like Map can jump to Execute); views fetch their own data via the LMS/db layers.
 - Define visual styling and semantic tokens in `src/styles.css`; shared tokens keep the shell consistent.
 
 ## Data layer
