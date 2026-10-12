@@ -1,0 +1,1 @@
+ALTER TABLE public.weekly_allocations ADD CONSTRAINT weekly_allocations_user_assignment_week_key UNIQUE (user_id, assignment_id, week_start);
