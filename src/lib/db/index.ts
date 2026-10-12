@@ -35,6 +35,12 @@ export async function saveSettings(
   const user_id = await currentUserId();
   return unwrap(await db.from("users_settings").upsert({ user_id, ...patch }).select().single());
 }
+/** Create the default settings row on first sign-in (column defaults fill values). */
+export async function ensureDefaultSettings(): Promise<void> {
+  if (await getSettings()) return;
+  const user_id = await currentUserId();
+  unwrap(await db.from("users_settings").upsert({ user_id }, { onConflict: "user_id", ignoreDuplicates: true }));
+}
 
 // ---------- lms_connections ----------
 export async function getLmsConnection(): Promise<LmsConnection | null> {

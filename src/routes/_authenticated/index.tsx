@@ -1,7 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { NextStepShell } from "@/components/nextstep-shell";
 
-export const Route = createFileRoute("/")({
+export const Route = createFileRoute("/_authenticated/")({
   head: () => ({
     meta: [
       { title: "NextStep — Executive-function coach" },
@@ -12,5 +12,10 @@ export const Route = createFileRoute("/")({
       { name: "twitter:card", content: "summary_large_image" },
     ],
   }),
-  component: NextStepShell,
+  component: Home,
 });
+
+function Home() {
+  const { user } = Route.useRouteContext();
+  return <NextStepShell email={user.email ?? ""} />;
+}
