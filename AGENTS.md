@@ -13,3 +13,7 @@
 - Keep the NextStep shell and placeholder panels in `src/components/`, with the index route composing the shell; this separates presentation from routing.
 - Use uncontrolled design-system tabs for shell navigation, without app data or backend calls; the shell remains presentation-only.
 - Define visual styling and semantic tokens in `src/styles.css`; shared tokens keep the shell consistent.
+
+## Data layer
+- Domain types live in `src/types/`; all database reads/writes go through `src/lib/db/` so views never query tables directly.
+- Every table is owner-scoped by RLS (child tables via their assignment), so repository functions don't filter by user themselves.
