@@ -26,6 +26,7 @@ export function scheduleWeek(stepsByUrgency: SchedulableStep[], weeklyHours?: nu
     const dayEnd = startOfToday + (day + 1) * 86_400_000;
     for (let i = 0; i < queue.length; ) {
       const step = queue[i];
+      if (!step) break;
       const due = step.dueAt ? new Date(step.dueAt).getTime() : Infinity;
       const fits = used + step.minutes <= capacity;
       const beforeDeadline = due >= dayEnd - 86_400_000; // allowed on the due day itself
