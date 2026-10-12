@@ -18,9 +18,29 @@ async function loadSettings() {
   return getSettings();
 }
 
-function timezones(): string[] {
-  const list = typeof Intl.supportedValuesOf === "function" ? Intl.supportedValuesOf("timeZone") : [];
-  return ["UTC", ...list.filter((z) => z !== "UTC")];
+// Fixed list of standard-timezone options. Labels show standard-time offsets
+// (not DST); the stored IANA id handles DST automatically.
+const TIMEZONES: { label: string; id: string }[] = [
+  { label: "(UTC-10) Hawaii-Aleutian", id: "Pacific/Honolulu" },
+  { label: "(UTC-9) Alaska", id: "America/Anchorage" },
+  { label: "(UTC-8) Pacific Time", id: "America/Los_Angeles" },
+  { label: "(UTC-7) Mountain Time", id: "America/Denver" },
+  { label: "(UTC-7) Arizona (no DST)", id: "America/Phoenix" },
+  { label: "(UTC-6) Central Time", id: "America/Chicago" },
+  { label: "(UTC-5) Eastern Time", id: "America/New_York" },
+  { label: "(UTC+0) UTC", id: "UTC" },
+  { label: "(UTC+0) London / GMT", id: "Europe/London" },
+  { label: "(UTC+1) Central European Time", id: "Europe/Paris" },
+  { label: "(UTC+5:30) India Standard Time", id: "Asia/Kolkata" },
+  { label: "(UTC+8) China / Singapore", id: "Asia/Shanghai" },
+  { label: "(UTC+9) Japan Standard Time", id: "Asia/Tokyo" },
+  { label: "(UTC+10) Australia Eastern Time", id: "Australia/Sydney" },
+];
+
+/** Browser's zone if it's in the list, otherwise Eastern Time. */
+function defaultTimezone(): string {
+  const browser = Intl.DateTimeFormat().resolvedOptions().timeZone;
+  return TIMEZONES.some((t) => t.id === browser) ? browser : "America/New_York";
 }
 
 export function SettingsView() {
