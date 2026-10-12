@@ -290,8 +290,6 @@ export type Database = {
       users_settings: {
         Row: {
           created_at: string
-          study_window_end: string
-          study_window_start: string
           timezone: string
           updated_at: string
           user_id: string
@@ -299,8 +297,6 @@ export type Database = {
         }
         Insert: {
           created_at?: string
-          study_window_end?: string
-          study_window_start?: string
           timezone?: string
           updated_at?: string
           user_id: string
@@ -308,8 +304,6 @@ export type Database = {
         }
         Update: {
           created_at?: string
-          study_window_end?: string
-          study_window_start?: string
           timezone?: string
           updated_at?: string
           user_id?: string
