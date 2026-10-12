@@ -12,10 +12,14 @@ export const Route = createFileRoute("/_authenticated/")({
       { name: "twitter:card", content: "summary_large_image" },
     ],
   }),
+  validateSearch: (search: Record<string, unknown>) => ({
+    tab: typeof search.tab === "string" ? search.tab : undefined,
+  }),
   component: Home,
 });
 
 function Home() {
   const { user } = Route.useRouteContext();
-  return <NextStepShell email={user.email ?? ""} />;
+  const { tab } = Route.useSearch();
+  return <NextStepShell email={user.email ?? ""} initialTab={tab} />;
 }
