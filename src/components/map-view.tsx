@@ -13,7 +13,7 @@ interface MapData {
   syncedAt: number;
 }
 
-async function loadMapData(): Promise<MapData> {
+export async function loadMapData(): Promise<MapData> {
   const lms = getLmsProvider();
   const courses = await lms.getCourses();
   const lists = await Promise.all(courses.map((c) => lms.getAssignments(c.lmsCourseId)));
