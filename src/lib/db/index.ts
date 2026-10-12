@@ -5,7 +5,7 @@ import { supabase } from "@/integrations/supabase/client";
 import type {
   ActivityKind, ActivityLogEntry, Assignment, Course, DetectedItem, EstimateEvent,
   LmsConnection, NewAssignment, NewCourse, NewDetectedItem, NewEstimateEvent,
-  NewLmsConnection, NewStep, Step, StepStatus, UserSettings,
+  NewLmsConnection, NewStep, NewWeeklyAllocation, Step, StepStatus, UserSettings, WeeklyAllocation,
 } from "@/types/nextstep";
 
 // The generated Supabase types may lag behind migrations, so we use an untyped
