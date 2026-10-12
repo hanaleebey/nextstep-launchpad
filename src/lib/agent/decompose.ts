@@ -126,6 +126,36 @@ function clampTimebox(minutes: number): number {
 }
 
 /**
+ * Split `total` minutes by weight, respecting the 15–50 limits.
+ * If a step would go over 50 (or under 15), it is pinned at the limit and the
+ * leftover time is shared among the remaining steps — so heavy steps don't
+ * silently swallow minutes. Repeats until nothing is out of range.
+ */
+export function splitByWeight(total: number, weights: number[]): number[] {
+  const result: (number | null)[] = weights.map(() => null);
+  let remaining = total;
+  for (let pass = 0; pass < weights.length; pass++) {
+    const open = weights.map((w, i) => (result[i] === null ? i : -1)).filter((i) => i >= 0);
+    if (open.length === 0) break;
+    const wSum = open.reduce((s, i) => s + weights[i], 0);
+    let pinned = false;
+    for (const i of open) {
+      const share = (remaining * weights[i]) / wSum;
+      if (share > MAX_TIMEBOX || share < MIN_TIMEBOX) {
+        result[i] = share > MAX_TIMEBOX ? MAX_TIMEBOX : MIN_TIMEBOX;
+        remaining -= result[i] as number;
+        pinned = true;
+      }
+    }
+    if (!pinned) {
+      for (const i of open) result[i] = (remaining * weights[i]) / wSum;
+      break;
+    }
+  }
+  return result.map((m) => clampTimebox(m ?? MIN_TIMEBOX));
+}
+
+/**
  * Produce ordered, timeboxed steps for an assignment.
  * Note: very small totals (< 60 min) or very large ones (> 400 min) can't hit
  * the total exactly because of the 15–50 limits; we stay as close as allowed.
@@ -143,11 +173,11 @@ export function decompose(input: DecomposeInput): DecomposedStep[] {
     .sort((a, b) => a.i - b.i)
     .map(({ step }) => step);
 
-  const weightSum = kept.reduce((s, k) => s + k.weight, 0);
+  const minutes = splitByWeight(total, kept.map((k) => k.weight));
   return kept.map((step, idx) => ({
     order_index: idx,
     title: step.title,
-    timebox_minutes: clampTimebox((total * step.weight) / weightSum),
+    timebox_minutes: minutes[idx],
     done_criteria: [...step.done],
   }));
 }
