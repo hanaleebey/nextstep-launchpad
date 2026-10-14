@@ -1,8 +1,12 @@
-// Running behind tab. UI only for now: the re-plan options and their
-// "impact on deadlines" are illustrative, not computed. Selecting/accepting
-// an option is local UI state — no data is changed yet.
+// Running behind tab. Shows ONE recommended re-plan (picked by
+// src/lib/agent/replan.ts); "Adjust" reveals the alternatives. Accept runs the
+// re-planner, and "What the system did" reads from activity_log.
 import { useState } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { toast } from "sonner";
+import { listActivity } from "@/lib/db";
+import { recommendPlan, runReplan, type PlanItem } from "@/lib/agent/replan";
+import { DEFAULT_WEEKLY_HOURS } from "@/lib/agent/buffer";
 import { AlertTriangle, CheckCircle2, Loader2 } from "lucide-react";
 import { loadMapData, BufferChip } from "@/components/map-view";
 import { bufferStateFor, computeSlack, daysUntil, remainingMinutes } from "@/lib/engine/buffer";
@@ -33,8 +37,15 @@ function fmtMinutes(min: number) {
 
 export function BehindView() {
   const { data, isLoading, isError } = useQuery({ queryKey: ["lms", "map"], queryFn: loadMapData });
-  const [selected, setSelected] = useState<OptionId>("triage");
-  const [decision, setDecision] = useState<"accepted" | "adjust" | null>(null);
+  const activity = useQuery({ queryKey: ["activity"], queryFn: () => listActivity(8) });
+  const queryClient = useQueryClient();
+  const [picked, setPicked] = useState<OptionId | null>(null);
+  const [adjusting, setAdjusting] = useState(false);
+  const accept = useMutation({
+    mutationFn: (opt: OptionId | undefined) => runReplan("accept", opt),
+    onSuccess: () => { toast.success("Re-plan applied."); queryClient.invalidateQueries({ queryKey: ["activity"] }); },
+    onError: (e) => toast.error(`Re-plan failed: ${e instanceof Error ? e.message : String(e)}`),
+  });
 
   if (isLoading) return <div className="map-state" role="status"><Loader2 size={22} aria-hidden="true" />Checking your buffers…</div>;
   if (isError || !data) return <div className="map-state" role="alert"><AlertTriangle size={22} aria-hidden="true" />Couldn't load your work.</div>;
@@ -54,17 +65,19 @@ export function BehindView() {
     return <div className="map-state"><CheckCircle2 size={22} aria-hidden="true" />You're not behind on anything. Nothing to re-plan.</div>;
   }
 
+  // Ask the re-planner which single option to recommend for this week.
+  const items: PlanItem[] = rows.map((r) => ({
+    id: r.a.lmsAssignmentId, title: r.a.title, dueAt: r.a.dueAt,
+    steps: (r.a.steps ?? []).filter((st) => st.status === "todo")
+      .map((st) => ({ id: `${r.a.lmsAssignmentId}:${st.orderIndex}`, title: st.title, minutes: st.timeboxMinutes })),
+  }));
+  const recommendedId = recommendPlan(items, behind.a.lmsAssignmentId, DEFAULT_WEEKLY_HOURS).recommended.option;
+  const selected = picked ?? recommendedId;
   const option = OPTIONS.find((o) => o.id === selected)!;
+  const visible = adjusting ? OPTIONS : OPTIONS.filter((o) => o.id === recommendedId);
   const others = rows.filter((r) => r !== behind).slice(0, 3);
   const course = code.get(behind.a.lmsCourseId);
   const hoursLeft = Math.max(0, Math.round((behind.days ?? 0) * 24));
-
-  const feed = [
-    `Detected that "${behind.a.title}" has no buffer left`,
-    `Compared ${fmtMinutes(behind.remaining)} of remaining work with ${hoursLeft}h until the deadline`,
-    `Prepared ${OPTIONS.length} re-plan options and recommended "Triage now"`,
-    "Held off changing your schedule until you choose",
-  ];
 
   return (
     <div className="map-view">
@@ -83,7 +96,7 @@ export function BehindView() {
         <section className="map-card" aria-labelledby="replan-title">
           <h2 id="replan-title">Re-plan proposal</h2>
           <div className="behind-options" role="radiogroup" aria-label="Re-plan options">
-            {OPTIONS.map((o, i) => {
+            {visible.map((o) => {
               const isSel = o.id === selected;
               return (
                 <button
@@ -92,12 +105,12 @@ export function BehindView() {
                   role="radio"
                   aria-checked={isSel}
                   className={`behind-option${isSel ? " is-selected" : ""}`}
-                  onClick={() => { setSelected(o.id); setDecision(null); }}
+                  onClick={() => setPicked(o.id)}
                 >
                   <span className="behind-option-head">
                     <span className="behind-radio" aria-hidden="true">{isSel && <CheckCircle2 size={16} />}</span>
                     {o.title}
-                    {i === 0 && <span className="course-chip">Recommended</span>}
+                    {o.id === recommendedId && <span className="course-chip">Recommended</span>}
                   </span>
                   <span className="behind-option-body">{o.summary}</span>
                 </button>
@@ -105,16 +118,14 @@ export function BehindView() {
             })}
           </div>
           <div className="exec-actions" style={{ marginTop: 16 }}>
-            <button type="button" className="exec-btn behind-accept" onClick={() => setDecision("accepted")}>Accept</button>
-            <button type="button" className="exec-btn exec-stopped" onClick={() => setDecision("adjust")}>Adjust</button>
+            <button type="button" className="exec-btn behind-accept" disabled={accept.isPending}
+              onClick={() => accept.mutate(selected === recommendedId ? undefined : selected)}>
+              {accept.isPending ? "Applying…" : "Accept"}
+            </button>
+            {!adjusting && (
+              <button type="button" className="exec-btn exec-stopped" onClick={() => setAdjusting(true)}>Adjust</button>
+            )}
           </div>
-          {decision && (
-            <p className="map-meta" role="status" style={{ marginTop: 10 }}>
-              {decision === "accepted"
-                ? `"${option.title}" selected. Applying re-plans isn't built yet, so nothing has changed.`
-                : "Adjusting a plan isn't built yet."}
-            </p>
-          )}
         </section>
 
         <aside className="map-aside">
@@ -135,7 +146,10 @@ export function BehindView() {
           </section>
           <section className="map-card" aria-labelledby="did-title">
             <h2 id="did-title">What the system did</h2>
-            <ul className="map-activity">{feed.map((m, i) => <li key={i}>{m}</li>)}</ul>
+            {activity.isLoading ? <p className="map-meta">Loading…</p>
+              : activity.isError ? <p className="map-meta" role="alert">Couldn't load activity.</p>
+              : !activity.data?.length ? <p className="map-meta">Nothing yet. Accept a plan or mark a step Blocked.</p>
+              : <ul className="map-activity">{activity.data.map((e) => <li key={e.id}>{e.message}</li>)}</ul>}
           </section>
         </aside>
       </div>
