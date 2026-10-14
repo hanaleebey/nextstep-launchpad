@@ -250,6 +250,7 @@ export type Database = {
           done_criteria: Json
           id: string
           order_index: number
+          scheduled_date: string | null
           status: string
           timebox_minutes: number
           title: string
@@ -261,6 +262,7 @@ export type Database = {
           done_criteria?: Json
           id?: string
           order_index: number
+          scheduled_date?: string | null
           status?: string
           timebox_minutes?: number
           title: string
@@ -272,6 +274,7 @@ export type Database = {
           done_criteria?: Json
           id?: string
           order_index?: number
+          scheduled_date?: string | null
           status?: string
           timebox_minutes?: number
           title?: string
