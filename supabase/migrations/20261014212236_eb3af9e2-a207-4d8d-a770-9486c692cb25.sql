@@ -1,0 +1,1 @@
+ALTER TABLE public.estimate_events ADD COLUMN IF NOT EXISTS ai_refined boolean NOT NULL DEFAULT false;
