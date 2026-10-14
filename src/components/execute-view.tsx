@@ -2,7 +2,9 @@
 // Selection rule (decision offloading): take the most urgent assignment
 // (least slack) that still has a "todo" step, and hand over its first todo step.
 import { useEffect, useState } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { toast } from "sonner";
+import { runReplan } from "@/lib/agent/replan";
 import { AlertTriangle, Check, CircleCheckBig, Hand, Loader2, Pause, Play, Square } from "lucide-react";
 import { loadMapData, BufferChip } from "@/components/map-view";
 import { bufferStateFor, computeSlack, daysUntil, remainingMinutes, BUFFER_LABEL } from "@/lib/engine/buffer";
@@ -143,8 +145,19 @@ function ActionCard(props: {
   const R = 70;
   const C = 2 * Math.PI * R;
 
+  const queryClient = useQueryClient();
   function finish(status: StepStatus) {
     finishStep({ key: props.stepId, status, elapsedSeconds: elapsed, timeboxSeconds: total });
+    // A blocked step triggers a re-plan: buffers are recomputed, steps are
+    // moved into free time, and a summary lands in the activity log.
+    if (status === "blocked") {
+      runReplan("blocked")
+        .then(() => {
+          toast.success("Re-planned around the blocked step.");
+          queryClient.invalidateQueries({ queryKey: ["activity"] });
+        })
+        .catch((e) => toast.error(`Re-plan failed: ${e instanceof Error ? e.message : String(e)}`));
+    }
   }
 
   return (
