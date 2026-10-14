@@ -53,7 +53,7 @@ export function inferDueDates(items: OrderedItem[], bufferMinutes = DEFAULT_LEAD
     // Walk backwards from (anchor − buffer), subtracting each later item's work.
     let cursor = new Date(item.dueAt).getTime() - bufferMinutes * 60_000;
     for (let i = pending.length - 1; i >= 0; i--) {
-      const p = pending[i];
+      const p = pending[i]!;
       out.set(p.id, { id: p.id, dueAt: new Date(cursor).toISOString(), inferred: true, anchorId: item.id });
       cursor -= (p.estimatedMinutes ?? 30) * 60_000;
     }
