@@ -38,7 +38,7 @@ export function MoodleConnectPanel() {
 
   const existing = connection.data;
   return (
-    <section className="panel" aria-labelledby="moodle-connect-title">
+    <section className="map-card mb-4" aria-labelledby="moodle-connect-title">
       <h2 id="moodle-connect-title" className="text-lg font-semibold">1. Connect your LMS</h2>
       <p className="text-sm text-muted-foreground">Link your Moodle account so NextStep can read your courses and due dates. Read-only — nothing is ever changed in Moodle.</p>
       {existing?.site_url && (
