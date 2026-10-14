@@ -77,6 +77,8 @@ export interface EstimateEvent {
   estimated_minutes: number;
   actual_minutes: number | null;
   confidence: Confidence;
+  calibration_used: boolean | null; // DB default true — set false when a sample is excluded
+  excluded_reason: string | null; // why this event was left out of calibration
   created_at: string;
 }
 
@@ -118,7 +120,8 @@ export type NewCourse = Omit<Course, Auto>;
 export type NewAssignment = Omit<Assignment, Auto | "status" | "actual_minutes" | "progress_pct" | "buffer_state" | "estimated_is_manual"> &
   Partial<Pick<Assignment, "status" | "actual_minutes" | "progress_pct" | "buffer_state" | "estimated_is_manual">>;
 export type NewStep = Omit<Step, "id" | "created_at" | "updated_at" | "status" | "scheduled_date"> & { status?: StepStatus; scheduled_date?: string | null };
-export type NewEstimateEvent = Omit<EstimateEvent, "id" | "created_at">;
+export type NewEstimateEvent = Omit<EstimateEvent, "id" | "created_at"> &
+  Partial<Pick<EstimateEvent, "calibration_used" | "excluded_reason">>; // optional — DB defaults fill them
 export type NewDetectedItem = Omit<DetectedItem, Auto | "confirmed"> & { confirmed?: boolean };
 export type NewLmsConnection = Omit<LmsConnection, Auto | "connected_at">;
 export type NewWeeklyAllocation = Omit<WeeklyAllocation, Auto>;
