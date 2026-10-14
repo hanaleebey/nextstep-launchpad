@@ -176,27 +176,33 @@ export type Database = {
         Row: {
           actual_minutes: number | null
           assignment_id: string
+          calibration_used: boolean | null
           confidence: string
           created_at: string
           estimated_minutes: number
+          excluded_reason: string | null
           id: string
           item_type: string
         }
         Insert: {
           actual_minutes?: number | null
           assignment_id: string
+          calibration_used?: boolean | null
           confidence?: string
           created_at?: string
           estimated_minutes: number
+          excluded_reason?: string | null
           id?: string
           item_type: string
         }
         Update: {
           actual_minutes?: number | null
           assignment_id?: string
+          calibration_used?: boolean | null
           confidence?: string
           created_at?: string
           estimated_minutes?: number
+          excluded_reason?: string | null
           id?: string
           item_type?: string
         }
