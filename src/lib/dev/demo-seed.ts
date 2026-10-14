@@ -2,7 +2,8 @@
 // import.meta.env.DEV is true, so it never ships in the hosted build.
 // Inserts a demo week for the signed-in user; skips titles that already exist.
 import { createAssignment, listAssignments, upsertCourse } from "@/lib/db";
-import { estimateQuiz, estimateReading, estimateVideo } from "@/lib/agent/estimate";
+import { estimateCalibrated } from "@/lib/agent/estimate";
+import { getMultipliers } from "@/lib/agent/calibrate-persist";
 import { persistEstimate } from "@/lib/agent/persist-estimate";
 
 const inDays = (d: number) => new Date(Date.now() + d * 86_400_000).toISOString();
@@ -14,10 +15,11 @@ export async function loadDemoWeek(): Promise<number> {
   const psy = await upsertCourse({ lms_course_id: "demo-psy210", name: "Cognitive Psychology", code: "PSY 210" });
   const eng = await upsertCourse({ lms_course_id: "demo-eng210", name: "Academic Writing", code: "ENG 210" });
 
+  const m = await getMultipliers(); // learned pace changes the numbers
   const items = [
-    { title: "Watch: Intro to Neural Networks", course: ml.id, days: 2, type: "video", est: estimateVideo({ durationSeconds: 22 * 60 }) },
-    { title: "Quiz 3: Linear Algebra", course: math.id, days: 3, type: "quiz", est: estimateQuiz({ timeLimitSeconds: 25 * 60 }) },
-    { title: "Read: Chapter 7 (18 pages)", course: psy.id, days: 4, type: "read", est: estimateReading({ wordCount: 3600, pageCount: 18 }) },
+    { title: "Watch: Intro to Neural Networks", course: ml.id, days: 2, type: "video", est: estimateCalibrated({ kind: "video", signals: { durationSeconds: 22 * 60 } }, m) },
+    { title: "Quiz 3: Linear Algebra", course: math.id, days: 3, type: "quiz", est: estimateCalibrated({ kind: "quiz", signals: { timeLimitSeconds: 25 * 60 } }, m) },
+    { title: "Read: Chapter 7 (18 pages)", course: psy.id, days: 4, type: "read", est: estimateCalibrated({ kind: "read", signals: { wordCount: 3600, pageCount: 18 } }, m) },
     { title: "Essay: Research Proposal", course: eng.id, days: 6, type: "paper", est: null }, // open-ended, no signal
   ];
 

@@ -5,6 +5,8 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { AlertTriangle, CalendarX2, Loader2, RefreshCw } from "lucide-react";
 import { toast } from "sonner";
 import { ensureDefaultSettings, getSettings, listAssignments, listCourses, listWeeklyAllocations, saveSettings } from "@/lib/db";
+import { getCalibrationSummary } from "@/lib/agent/calibrate-persist";
+import { MIN_SAMPLES } from "@/lib/agent/calibrate";
 import { recomputeWeeklyAllocations } from "@/lib/agent/allocate-persist";
 import { isDueInHorizon } from "@/lib/agent/allocate";
 import { weekInTimezone } from "@/lib/time/week-in-timezone";
@@ -103,6 +105,7 @@ export function SettingsView() {
       </section>
 
       <AllocationPanel timezone={settingsQ.data?.timezone ?? "UTC"} />
+      <CalibrationPanel />
     </div>
   );
 }
@@ -210,6 +213,27 @@ function AllocationPanel({ timezone }: { timezone: string }) {
             </tbody>
           </table>
         </div>
+      )}
+    </section>
+  );
+}
+
+/** What the system has learned about the student's pace, per item type. */
+function CalibrationPanel() {
+  const q = useQuery({ queryKey: ["calibration"], queryFn: getCalibrationSummary });
+  return (
+    <section className="map-card" aria-labelledby="calib-title">
+      <h2 id="calib-title">Your pace</h2>
+      <p className="map-sub">Learned from timed steps. Above x1.00 means you take longer than the default estimate.</p>
+      {q.isLoading ? <p className="map-empty" role="status">Loading…</p> : q.isError ? <p className="map-empty" role="alert">Couldn't load calibration.</p> : (
+        <ul className="calib-list">
+          {q.data!.map((r) => (
+            <li key={r.type}>
+              <span>{r.usable >= MIN_SAMPLES ? `${r.type} x${r.multiplier.toFixed(2)}` : r.type}</span>
+              <span className="map-sub">{r.usable >= MIN_SAMPLES ? `${r.usable} timed steps` : `not enough timed steps yet (${r.usable} of ${MIN_SAMPLES})`}</span>
+            </li>
+          ))}
+        </ul>
       )}
     </section>
   );

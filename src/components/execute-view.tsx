@@ -10,6 +10,21 @@ import { loadMapData, BufferChip } from "@/components/map-view";
 import { bufferStateFor, computeSlack, daysUntil, remainingMinutes, BUFFER_LABEL } from "@/lib/engine/buffer";
 import { finishStep, stepKey, useExecuteSession } from "@/lib/session/execute-store";
 import type { StepStatus } from "@/types/nextstep";
+import { checkSample, resolveSuspect, suspectPrompt, type Sample, type SuspectAnswer } from "@/lib/agent/calibrate";
+import { sampleFromCompletion, saveCompletionSample } from "@/lib/agent/calibrate-flow";
+
+/** Save a sample, recalibrate, and toast the plain-language result. Never blocks completion. */
+function recordAndCalibrate(lmsAssignmentId: string, sample: Sample) {
+  saveCompletionSample(lmsAssignmentId, sample)
+    .then(({ saved, messages }) => {
+      if (!saved) return; // sample LMS data has no saved assignment to attach timings to
+      const m = messages.find((x) => x.toLowerCase().includes(sample.item_type));
+      if (m) toast(m);
+    })
+    .catch((e) => toast.error(`Couldn't save the timing: ${e instanceof Error ? e.message : String(e)}`));
+}
+
+interface Pending { lmsAssignmentId: string; sample: Sample }
 
 function fmtClock(sec: number) {
   const m = Math.floor(Math.abs(sec) / 60);
@@ -29,6 +44,7 @@ function fmtDue(dueAt: string | null, days: number | null) {
 export function ExecuteView() {
   const { data, isLoading, isError } = useQuery({ queryKey: ["lms", "map"], queryFn: loadMapData });
   const session = useExecuteSession();
+  const [pending, setPending] = useState<Pending | null>(null);
 
   if (isLoading) return <div className="map-state" role="status"><Loader2 size={22} aria-hidden="true" />Picking your next action…</div>;
   if (isError || !data) return <div className="map-state" role="alert"><AlertTriangle size={22} aria-hidden="true" />Couldn't load your work.</div>;
@@ -75,7 +91,21 @@ export function ExecuteView() {
 
   return (
     <div className="exec-grid">
+      <div className="exec-main">
+      {pending && (
+        <SuspectCheck
+          sample={pending.sample}
+          onAnswer={(answer) => {
+            const resolved = resolveSuspect(pending.sample, answer);
+            if (resolved) recordAndCalibrate(pending.lmsAssignmentId, resolved);
+            setPending(null);
+          }}
+        />
+      )}
       <ActionCard
+        lmsAssignmentId={current.a.lmsAssignmentId}
+        itemType={current.a.itemType}
+        onSuspect={(sample) => setPending({ lmsAssignmentId: current.a.lmsAssignmentId, sample })}
         key={stepKey(current.a.lmsAssignmentId, step.orderIndex)}
         stepId={stepKey(current.a.lmsAssignmentId, step.orderIndex)}
         context={`${code.get(current.a.lmsCourseId)} · ${current.a.title} · step ${step.orderIndex + 1} of ${current.steps.length}`}
@@ -84,6 +114,7 @@ export function ExecuteView() {
         timeboxMinutes={step.timeboxMinutes}
         why={why}
       />
+      </div>
       <aside className="map-aside">
         <section className="map-card" aria-labelledby="up-next">
           <h2 id="up-next">Up next</h2>
@@ -123,7 +154,7 @@ export function ExecuteView() {
 }
 
 function ActionCard(props: {
-  stepId: string; context: string; title: string; criteria: string[]; timeboxMinutes: number; why: string;
+  stepId: string; lmsAssignmentId: string; itemType: string; onSuspect: (s: Sample) => void; context: string; title: string; criteria: string[]; timeboxMinutes: number; why: string;
 }) {
   const total = props.timeboxMinutes * 60;
   const [elapsed, setElapsed] = useState(0);
@@ -147,6 +178,15 @@ function ActionCard(props: {
 
   const queryClient = useQueryClient();
   function finish(status: StepStatus) {
+    // Calibration: Done and Stopped are completions; never 0 for an unstarted timer.
+    if (status !== "blocked") {
+      const sample = sampleFromCompletion(props.itemType, props.timeboxMinutes, elapsed, elapsed > 0);
+      if (sample) {
+        const check = checkSample(sample);
+        if (check.reason === "timer_left_running") props.onSuspect(sample);
+        else recordAndCalibrate(props.lmsAssignmentId, sample);
+      }
+    }
     finishStep({ key: props.stepId, status, elapsedSeconds: elapsed, timeboxSeconds: total });
     // A blocked step triggers a re-plan: buffers are recomputed, steps are
     // moved into free time, and a summary lands in the activity log.
@@ -201,6 +241,25 @@ function ActionCard(props: {
       </div>
 
       <p className="exec-why"><strong>Why this now:</strong> {props.why}</p>
+    </section>
+  );
+}
+
+/** Inline one-tap check for a suspiciously long timed step. Dismissing = discard. */
+function SuspectCheck(props: { sample: Sample; onAnswer: (a: SuspectAnswer) => void }) {
+  const [real, setReal] = useState("");
+  const realMinutes = real.trim() ? Number(real) : null;
+  return (
+    <section className="map-card exec-suspect" role="status" aria-labelledby="suspect-q">
+      <p id="suspect-q"><AlertTriangle size={16} aria-hidden="true" /> {suspectPrompt(props.sample)}</p>
+      <div className="exec-suspect-row">
+        <label>Real time (optional, minutes)
+          <input type="number" min={1} value={real} onChange={(e) => setReal(e.target.value)} />
+        </label>
+        <button type="button" className="map-btn" onClick={() => props.onAnswer({ kind: "kept_running", realMinutes })}>It kept running</button>
+        <button type="button" className="map-btn" onClick={() => props.onAnswer({ kind: "accurate" })}>That time is accurate</button>
+        <button type="button" className="map-btn" aria-label="Dismiss (discard this timing)" onClick={() => props.onAnswer({ kind: "dismissed" })}>Dismiss</button>
+      </div>
     </section>
   );
 }

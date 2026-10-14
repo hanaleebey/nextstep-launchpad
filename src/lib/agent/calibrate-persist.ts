@@ -33,22 +33,28 @@ export async function recordSample(assignmentId: string, sample: Sample, confide
   return check;
 }
 
+/** Turn stored events of one type into calibration samples (completed steps only). */
+function samplesOf(events: Awaited<ReturnType<typeof listEstimateEvents>>, type: string): Sample[] {
+  // Pure estimate logs have no actual and no explicit decision — skip them.
+  return events
+    .filter((e) => e.item_type === type && (e.actual_minutes !== null || e.excluded_reason !== null))
+    .map((e) => ({
+      item_type: e.item_type,
+      estimated_minutes: e.estimated_minutes,
+      actual_minutes: e.actual_minutes,
+      // A runaway sample stored as used means the student confirmed it.
+      confirmed_accurate: e.calibration_used === true && e.excluded_reason === null,
+    }));
+}
+
 /** Recompute every type's multiplier from usable history, save it, and log what changed. */
-export async function recalibrate(): Promise<Record<string, number>> {
+export async function recalibrate(): Promise<{ multipliers: Record<string, number>; messages: string[] }> {
   const [events, old] = await Promise.all([listEstimateEvents(), getMultipliers()]);
   const out: Record<string, number> = { ...old };
+  const messages: string[] = [];
 
   for (const type of CALIBRATION_TYPES) {
-    // Only completed samples (pure estimate logs have no actual and no explicit decision).
-    const samples: Sample[] = events
-      .filter((e) => e.item_type === type && (e.actual_minutes !== null || e.excluded_reason !== null))
-      .map((e) => ({
-        item_type: e.item_type,
-        estimated_minutes: e.estimated_minutes,
-        actual_minutes: e.actual_minutes,
-        // A runaway sample stored as used means the student confirmed it.
-        confirmed_accurate: e.calibration_used === true && e.excluded_reason === null,
-      }));
+    const samples = samplesOf(events, type);
     if (samples.length === 0) continue;
 
     const prev = old[type] ?? 1;
@@ -60,7 +66,19 @@ export async function recalibrate(): Promise<Record<string, number>> {
       if (error) throw new Error(error.message);
       out[type] = r.multiplier;
     }
-    if (r.changed || r.status === "mostly_rejected") await logActivity("calibrate", describeCalibration(type, prev, r));
+    const msg = describeCalibration(type, prev, r);
+    messages.push(msg);
+    if (r.changed || r.status === "mostly_rejected") await logActivity("calibrate", msg);
   }
-  return out;
+  return { multipliers: out, messages };
+}
+
+/** What Settings shows: per type, the multiplier and how many usable timed steps back it. */
+export async function getCalibrationSummary(): Promise<{ type: string; multiplier: number; usable: number }[]> {
+  const [events, mult] = await Promise.all([listEstimateEvents(), getMultipliers()]);
+  return CALIBRATION_TYPES.map((type) => ({
+    type,
+    multiplier: mult[type] ?? 1,
+    usable: computeMultiplier(samplesOf(events, type), mult[type] ?? 1).usableCount,
+  }));
 }
