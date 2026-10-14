@@ -10,7 +10,7 @@ export interface AgentAssignment {
   title: string;
   type: string;
   due_at: string | null;
-  description?: string;
+  description?: string | undefined;
   word_count?: number;
   estimated_minutes?: number | null;
 }
