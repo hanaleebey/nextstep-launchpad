@@ -339,3 +339,11 @@
 .settings-table th { text-align: left; color: var(--muted); font-weight: 600; padding: 8px; border-bottom: 1px solid var(--border); }
 .settings-table td { padding: 10px 8px; border-bottom: 1px solid var(--border); color: var(--ink); }
 .exec-btn:disabled { opacity: .6; }
+
+.exec-main { display: flex; flex-direction: column; gap: 16px; min-width: 0; }
+.exec-suspect p { display: flex; gap: 8px; align-items: center; margin: 0 0 12px; color: var(--amber); font-weight: 600; }
+.exec-suspect-row { display: flex; flex-wrap: wrap; gap: 8px; align-items: end; }
+.exec-suspect-row label { display: flex; flex-direction: column; gap: 4px; font-size: 13px; color: var(--muted); }
+.exec-suspect-row input { width: 120px; padding: 6px 8px; border: 1px solid var(--border); border-radius: 8px; }
+.calib-list { list-style: none; padding: 0; margin: 0; display: grid; gap: 8px; }
+.calib-list li { display: flex; justify-content: space-between; gap: 12px; }
