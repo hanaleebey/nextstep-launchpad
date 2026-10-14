@@ -10,7 +10,7 @@ export interface AiStepsInput {
   type: string;
   dueAt: string | null;
   estimatedMinutes: number | null;
-  details?: string;
+  details?: string | undefined;
 }
 
 /** JSON schema sent to the model (strict: all fields required, no extras). */
