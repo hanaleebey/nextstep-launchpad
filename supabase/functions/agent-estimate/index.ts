@@ -1,0 +1,267 @@
+
+// supabase/functions/agent-estimate/index.ts
+//
+// NextStep's single model path. Two modes:
+//   mode: 'plan'   -> generate 4-8 timeboxed steps for an assignment that has none
+//   mode: 'refine' -> upgrade a low-confidence deterministic estimate and its steps
+//
+// Contract:
+//   Request : { mode, assignment: { title, type, due_at, description?, word_count?,
+//                                   estimated_minutes? }, signals? }
+//   Success : { minutes, confidence: 'high'|'medium'|'low',
+//               steps: [{ title, timebox_minutes, done_criteria: string[] }] }
+//   Failure : { error: { code, message } }
+//
+// Secrets (set with `supabase secrets set ...`):
+//   MODEL_API_KEY   required
+//   MODEL_BASE_URL  optional, default https://api.openai.com/v1  (any OpenAI-compatible API)
+//   MODEL_NAME      optional, default gpt-4o-mini
+
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.4";
+
+const CORS = {
+  "Access-Control-Allow-Origin": "*",
+  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
+  "Access-Control-Allow-Methods": "POST, OPTIONS",
+};
+
+const MODEL_TIMEOUT_MS = 20_000;
+
+type Confidence = "high" | "medium" | "low";
+
+interface Step {
+  title: string;
+  timebox_minutes: number;
+  done_criteria: string[];
+}
+
+interface Estimate {
+  minutes: number;
+  confidence: Confidence;
+  steps: Step[];
+}
+
+interface ErrBody {
+  error: { code: string; message: string };
+}
+
+function ok(body: Estimate): Response {
+  return new Response(JSON.stringify(body), {
+    status: 200,
+    headers: { ...CORS, "Content-Type": "application/json" },
+  });
+}
+
+// Model-side failures return 200 with an `error` body so the client can read
+// error.message and fall back to the built-in planner.
+function fail(code: string, message: string, status = 200): Response {
+  const body: ErrBody = { error: { code, message } };
+  return new Response(JSON.stringify(body), {
+    status,
+    headers: { ...CORS, "Content-Type": "application/json" },
+  });
+}
+
+function stripHtml(input: unknown): string {
+  if (typeof input !== "string") return "";
+  return input
+    .replace(/<[^>]*>/g, " ")
+    .replace(/&nbsp;/g, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, 4000);
+}
+
+// Strict validation. Anything that does not match the shape exactly is rejected,
+// which makes the client fall back to the deterministic planner rather than
+// rendering a half-finished plan.
+function validate(raw: unknown): Estimate | null {
+  if (!raw || typeof raw !== "object") return null;
+  const o = raw as Record<string, unknown>;
+
+  const minutes = Number(o.minutes);
+  if (!Number.isFinite(minutes) || minutes <= 0) return null;
+
+  const confidence = o.confidence;
+  if (confidence !== "high" && confidence !== "medium" && confidence !== "low") return null;
+
+  if (!Array.isArray(o.steps) || o.steps.length < 4 || o.steps.length > 8) return null;
+
+  const steps: Step[] = [];
+  for (const item of o.steps) {
+    if (!item || typeof item !== "object") return null;
+    const s = item as Record<string, unknown>;
+
+    const title = typeof s.title === "string" ? s.title.trim() : "";
+    if (!title) return null;
+
+    const timebox = Number(s.timebox_minutes);
+    if (!Number.isFinite(timebox)) return null;
+
+    const rawCriteria = s.done_criteria;
+    if (!Array.isArray(rawCriteria) || rawCriteria.length < 1 || rawCriteria.length > 3) {
+      return null;
+    }
+    const criteria = rawCriteria
+      .filter((c): c is string => typeof c === "string" && c.trim().length > 0)
+      .map((c) => c.trim().slice(0, 200));
+    if (criteria.length !== rawCriteria.length) return null;
+
+    steps.push({
+      title: title.slice(0, 140),
+      timebox_minutes: Math.min(50, Math.max(15, Math.round(timebox))),
+      done_criteria: criteria,
+    });
+  }
+
+  return { minutes: Math.max(1, Math.round(minutes)), confidence, steps };
+}
+
+const SYSTEM_PROMPT = `You are the planning engine inside NextStep, a study assistant for college students with ADHD.
+
+You turn one assignment into small, concrete, timeboxed steps. Your job is to remove the
+need for the student to decide what to do next.
+
+Rules:
+- Return 4 to 8 steps.
+- Each step has a short imperative title in plain language, with no jargon.
+- Each step has timebox_minutes, an integer from 15 to 50.
+- Each step has done_criteria: 1 to 3 short, checkable statements defining "good enough" -
+  the point at which the student is allowed to stop.
+- Every step must be startable without further decisions.
+- The timeboxes must sum to roughly the assignment's total estimated time.
+- Avoid vague verbs like "review" or "work on". Name the concrete action.
+- If rubric criteria are supplied, ground the done_criteria in them.
+- If details are missing, make a reasonable assumption and continue. Never ask questions.
+
+Reply with JSON only, exactly this shape:
+{"minutes": <integer>, "confidence": "high" | "medium" | "low", "steps": [{"title": "...", "timebox_minutes": <integer>, "done_criteria": ["..."]}]}`;
+
+function userPrompt(
+  mode: string,
+  assignment: Record<string, unknown>,
+  signals: unknown,
+): string {
+  const lines: string[] = [];
+  lines.push(`Mode: ${mode === "refine" ? "refine an existing estimate" : "plan a new assignment"}`);
+  lines.push(`Title: ${String(assignment.title ?? "Untitled")}`);
+  if (assignment.type) lines.push(`Type: ${String(assignment.type)}`);
+  if (assignment.due_at) lines.push(`Due: ${String(assignment.due_at)}`);
+  if (assignment.word_count) lines.push(`Word count: ${String(assignment.word_count)}`);
+  if (assignment.estimated_minutes) {
+    lines.push(`Current estimate: ${String(assignment.estimated_minutes)} minutes`);
+  }
+
+  const description = stripHtml(assignment.description);
+  if (description) lines.push(`Assignment details: ${description}`);
+
+  if (signals && typeof signals === "object") {
+    lines.push(`Detected signals: ${JSON.stringify(signals).slice(0, 2000)}`);
+  }
+  return lines.join("\n");
+}
+
+Deno.serve(async (req: Request): Promise<Response> => {
+  if (req.method === "OPTIONS") return new Response("ok", { headers: CORS });
+  if (req.method !== "POST") return fail("METHOD_NOT_ALLOWED", "Use POST.", 405);
+
+  // --- auth: reject anyone not signed in -----------------------------------
+  const authHeader = req.headers.get("Authorization") ?? "";
+  if (!authHeader.startsWith("Bearer ")) {
+    return fail("UNAUTHENTICATED", "Sign in required.", 401);
+  }
+  const supabase = createClient(
+    Deno.env.get("SUPABASE_URL") ?? "",
+    Deno.env.get("SUPABASE_ANON_KEY") ?? "",
+    { global: { headers: { Authorization: authHeader } } },
+  );
+  const { data: auth, error: authError } = await supabase.auth.getUser();
+  if (authError || !auth?.user) {
+    return fail("UNAUTHENTICATED", "Sign in required.", 401);
+  }
+
+  // --- input ---------------------------------------------------------------
+  let body: Record<string, unknown>;
+  try {
+    body = await req.json();
+  } catch {
+    return fail("BAD_REQUEST", "Request body must be JSON.", 400);
+  }
+
+  const mode = body.mode === "refine" ? "refine" : body.mode === "plan" ? "plan" : null;
+  if (!mode) return fail("BAD_REQUEST", "mode must be 'plan' or 'refine'.", 400);
+
+  const assignment = body.assignment;
+  if (!assignment || typeof assignment !== "object") {
+    return fail("BAD_REQUEST", "assignment is required.", 400);
+  }
+
+  // --- model credentials ---------------------------------------------------
+  const apiKey = Deno.env.get("MODEL_API_KEY");
+  if (!apiKey) {
+    return fail("NOT_CONFIGURED", "The model key is not set on the server.");
+  }
+  const baseUrl = (Deno.env.get("MODEL_BASE_URL") ?? "https://api.openai.com/v1")
+    .replace(/\/+$/, "");
+  const model = Deno.env.get("MODEL_NAME") ?? "gpt-4o-mini";
+
+  // --- call the model ------------------------------------------------------
+  let raw: string;
+  try {
+    const res = await fetch(`${baseUrl}/chat/completions`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${apiKey}`,
+      },
+      body: JSON.stringify({
+        model,
+        temperature: 0.4,
+        // If your provider rejects response_format, delete this line -
+        // validate() below is the real guard.
+        response_format: { type: "json_object" },
+        messages: [
+          { role: "system", content: SYSTEM_PROMPT },
+          {
+            role: "user",
+            content: userPrompt(mode, assignment as Record<string, unknown>, body.signals),
+          },
+        ],
+      }),
+      signal: AbortSignal.timeout(MODEL_TIMEOUT_MS),
+    });
+
+    if (!res.ok) {
+      const detail = (await res.text()).slice(0, 300);
+      return fail("MODEL_UNAVAILABLE", `The model returned ${res.status}. ${detail}`);
+    }
+
+    const payload = await res.json();
+    const content = payload?.choices?.[0]?.message?.content;
+    if (typeof content !== "string" || !content.trim()) {
+      return fail("INVALID_MODEL_OUTPUT", "The model returned an empty answer.");
+    }
+    raw = content;
+  } catch (err) {
+    const name = (err as { name?: string })?.name;
+    if (name === "TimeoutError" || name === "AbortError") {
+      return fail("MODEL_TIMEOUT", "The model took too long to answer.");
+    }
+    return fail("MODEL_UNAVAILABLE", "Could not reach the model.");
+  }
+
+  // --- validate ------------------------------------------------------------
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    return fail("INVALID_MODEL_OUTPUT", "The model's answer was not valid JSON.");
+  }
+
+  const estimate = validate(parsed);
+  if (!estimate) {
+    return fail("INVALID_MODEL_OUTPUT", "The model's answer did not match the required shape.");
+  }
+
+  return ok(estimate);
+});
