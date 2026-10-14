@@ -23,9 +23,6 @@ export async function saveGeneratedSteps(assignmentId: string, title: string, st
     })),
   );
   const total = steps.reduce((n, s) => n + s.timebox_minutes, 0);
-  await logActivity({
-    kind: "estimate",
-    message: `${source === "ai" ? "AI planned" : "Planned"} "${title}": ${steps.length} steps, about ${total} min.`,
-  });
+  await logActivity("estimate", `${source === "ai" ? "AI planned" : "Planned"} "${title}": ${steps.length} steps, about ${total} min.`);
   return saved;
 }
