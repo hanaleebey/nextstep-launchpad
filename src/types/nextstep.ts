@@ -65,6 +65,7 @@ export interface Step {
   timebox_minutes: number;
   done_criteria: string[];
   status: StepStatus;
+  scheduled_date: string | null; // ISO date the re-planner put this step on
   created_at: string;
   updated_at: string;
 }
@@ -116,7 +117,7 @@ type Auto = "id" | "user_id" | "created_at" | "updated_at";
 export type NewCourse = Omit<Course, Auto>;
 export type NewAssignment = Omit<Assignment, Auto | "status" | "actual_minutes" | "progress_pct" | "buffer_state" | "estimated_is_manual"> &
   Partial<Pick<Assignment, "status" | "actual_minutes" | "progress_pct" | "buffer_state" | "estimated_is_manual">>;
-export type NewStep = Omit<Step, "id" | "created_at" | "updated_at" | "status"> & { status?: StepStatus };
+export type NewStep = Omit<Step, "id" | "created_at" | "updated_at" | "status" | "scheduled_date"> & { status?: StepStatus; scheduled_date?: string | null };
 export type NewEstimateEvent = Omit<EstimateEvent, "id" | "created_at">;
 export type NewDetectedItem = Omit<DetectedItem, Auto | "confirmed"> & { confirmed?: boolean };
 export type NewLmsConnection = Omit<LmsConnection, Auto | "connected_at">;

@@ -1,0 +1,1 @@
+ALTER TABLE public.steps ADD COLUMN IF NOT EXISTS scheduled_date date;
