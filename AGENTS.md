@@ -23,3 +23,4 @@
 - Settings is its own route (`/_authenticated/settings`) rendered inside NextStepShell via `children`; the other surfaces stay tabs on `/` (selected via `?tab=`).
 - Dev-only helpers live in `src/lib/dev/` and are only loaded via dynamic import behind `import.meta.env.DEV`, so they never ship.
 - Re-planning lives in `src/lib/agent/replan.ts` (pure simulation + one `runReplan` persistence entry point); views trigger it and read results back from activity_log, so the decision logic stays testable.
+- AI step generation runs only in `generateAiSteps` (server fn, `src/lib/agent/ai-steps.functions.ts`); output is sanitized by pure `ai-steps.ts` and falls back to `decompose()` on any failure, so the app never depends on AI.
