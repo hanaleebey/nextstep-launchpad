@@ -170,3 +170,86 @@ export function estimateCalibrated(input: EstimateInput, multipliers: Record<str
     signals: [...base.signals, `calibrated x${m.toFixed(2)} (your pace)`],
   };
 }
+
+// ---------- AI refinement (optional upgrade) ----------
+// The deterministic estimate is always computed first. Only when it is weak
+// (confidence 'low') or the assignment is complex do we ask the agent-estimate
+// function (mode 'refine') for a better number and steps. Any failure, timeout
+// or typed error means we silently keep the deterministic result.
+
+export interface RefineContext {
+  title: string;
+  type: string;
+  /** Moodle `intro` (HTML allowed — stripped before sending). */
+  introHtml?: string | null;
+  rubric?: string[];
+}
+
+export interface RefinedEstimate extends EstimateResult {
+  aiRefined: boolean;
+  /** AI steps when refined; null means "use the deterministic planner". */
+  steps: import("./decompose").DecomposedStep[] | null;
+}
+
+/** Turn Moodle HTML into plain text (tags removed, entities decoded, whitespace collapsed). */
+export function stripHtml(html: string | null | undefined): string {
+  if (!html) return "";
+  return html
+    .replace(/<(script|style)[\s\S]*?<\/\1>/gi, " ")
+    .replace(/<br\s*\/?>|<\/(p|div|li|h\d)>/gi, "\n")
+    .replace(/<[^>]+>/g, " ")
+    .replace(/&nbsp;/g, " ").replace(/&amp;/g, "&").replace(/&lt;/g, "<").replace(/&gt;/g, ">")
+    .replace(/&quot;/g, '"').replace(/&#39;/g, "'")
+    .replace(/[ \t]+/g, " ").replace(/\s*\n\s*/g, "\n").trim();
+}
+
+const OPEN_ENDED_TYPES = new Set(["paper", "project", "essay", "research"]);
+export const COMPLEX_RUBRIC_ITEMS = 3;
+export const COMPLEX_DESCRIPTION_WORDS = 250;
+
+/** Complex = open-ended type, a rubric of 3+ criteria, or a long brief. */
+export function isComplex(ctx: RefineContext): boolean {
+  if (OPEN_ENDED_TYPES.has(ctx.type.toLowerCase())) return true;
+  if ((ctx.rubric?.length ?? 0) >= COMPLEX_RUBRIC_ITEMS) return true;
+  const words = stripHtml(ctx.introHtml).split(/\s+/).filter(Boolean).length;
+  return words >= COMPLEX_DESCRIPTION_WORDS;
+}
+
+/** Call the model ONLY when confidence is low or the work is complex. */
+export function shouldRefine(base: EstimateResult, ctx: RefineContext): boolean {
+  return base.confidence === "low" || isComplex(ctx);
+}
+
+type RefineFn = (p: import("./agent-estimate-client").RefinePayload) =>
+  Promise<import("./agent-estimate-client").RefineResult | null>;
+
+/**
+ * Upgrade a deterministic estimate with the agent when warranted.
+ * `refineFn` is injectable for tests; by default the client is loaded lazily so
+ * the pure functions above never pull in network code.
+ */
+export async function refineEstimate(base: EstimateResult, ctx: RefineContext, refineFn?: RefineFn): Promise<RefinedEstimate> {
+  const keep: RefinedEstimate = { ...base, aiRefined: false, steps: null };
+  if (!shouldRefine(base, ctx)) return keep;
+  try {
+    const call = refineFn ?? (await import("./agent-estimate-client")).refineWithAgent;
+    const ai = await call({
+      title: ctx.title,
+      type: ctx.type,
+      description: stripHtml(ctx.introHtml).slice(0, 4000),
+      signals: base.signals,
+      rubric: (ctx.rubric ?? []).map((r) => stripHtml(r)).filter(Boolean).slice(0, 20),
+      deterministic: { minutes: base.minutes, confidence: base.confidence },
+    });
+    if (!ai) return keep;
+    return {
+      minutes: ai.minutes,
+      confidence: ai.confidence,
+      signals: [...base.signals, `AI-refined from ${base.minutes} min`],
+      aiRefined: true,
+      steps: ai.steps,
+    };
+  } catch {
+    return keep; // model unavailable: deterministic estimate stands
+  }
+}

@@ -42,3 +42,40 @@ export async function planAssignment(assignment: AgentAssignment): Promise<PlanR
     return fallback(e instanceof Error ? e.message : "AI unavailable");
   }
 }
+
+// ---------- refine mode ----------
+// Used by estimate.ts only when the deterministic estimate is weak. Returns
+// null on ANY problem (error, typed error body, bad shape, timeout) so the
+// caller silently keeps its deterministic result. Never throws.
+export interface RefinePayload {
+  title: string;
+  type: string;
+  description: string;
+  signals: string[];
+  rubric: string[];
+  deterministic: { minutes: number; confidence: string };
+}
+export interface RefineResult {
+  minutes: number;
+  confidence: "high" | "medium" | "low";
+  steps: DecomposedStep[];
+}
+export const REFINE_TIMEOUT_MS = 12_000;
+
+export async function refineWithAgent(assignment: RefinePayload, timeoutMs = REFINE_TIMEOUT_MS): Promise<RefineResult | null> {
+  try {
+    const call = supabase.functions.invoke("agent-estimate", { body: { mode: "refine", assignment } });
+    const timeout = new Promise<null>((resolve) => setTimeout(() => resolve(null), timeoutMs));
+    const res = await Promise.race([call, timeout]);
+    if (!res || res.error || !res.data || res.data.error) return null;
+    const d = res.data as { minutes?: unknown; confidence?: unknown };
+    const minutes = typeof d.minutes === "number" && Number.isFinite(d.minutes) ? Math.round(d.minutes) : NaN;
+    if (!(minutes >= 5 && minutes <= 6000)) return null;
+    const confidence = d.confidence === "high" || d.confidence === "medium" || d.confidence === "low" ? d.confidence : null;
+    const steps = sanitizeAiSteps(res.data);
+    if (!confidence || !steps) return null;
+    return { minutes, confidence, steps };
+  } catch {
+    return null;
+  }
+}
