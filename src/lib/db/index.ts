@@ -98,6 +98,13 @@ export async function setStepStatus(id: string, status: StepStatus): Promise<Ste
   return unwrap(await db.from("steps").update({ status }).eq("id", id).select().single());
 }
 
+export async function updateStep(
+  id: string,
+  patch: Partial<Pick<Step, "status" | "order_index" | "scheduled_date">>,
+): Promise<Step> {
+  return unwrap(await db.from("steps").update(patch).eq("id", id).select().single());
+}
+
 // ---------- weekly_allocations ----------
 export async function listWeeklyAllocations(weekStart?: string): Promise<WeeklyAllocation[]> {
   let q = db.from("weekly_allocations").select("*").order("week_start", { ascending: false });
