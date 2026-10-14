@@ -23,4 +23,4 @@
 - Settings is its own route (`/_authenticated/settings`) rendered inside NextStepShell via `children`; the other surfaces stay tabs on `/` (selected via `?tab=`).
 - Dev-only helpers live in `src/lib/dev/` and are only loaded via dynamic import behind `import.meta.env.DEV`, so they never ship.
 - Re-planning lives in `src/lib/agent/replan.ts` (pure simulation + one `runReplan` persistence entry point); views trigger it and read results back from activity_log, so the decision logic stays testable.
-- AI step generation runs only in `generateAiSteps` (server fn, `src/lib/agent/ai-steps.functions.ts`); output is sanitized by pure `ai-steps.ts` and falls back to `decompose()` on any failure, so the app never depends on AI.
+- The only model call is the `agent-estimate` Supabase Edge Function in the developer's own Supabase project (written and deployed by the developer); the app reaches it only via `src/lib/agent/agent-estimate-client.ts`, which re-sanitizes output and falls back to `decompose()` on any error, so the app never depends on AI.

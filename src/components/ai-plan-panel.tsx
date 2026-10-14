@@ -4,11 +4,10 @@
 // schedulable steps. Data goes through the db layer; AI goes through a server fn.
 import { useState, type FormEvent } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { useServerFn } from "@tanstack/react-start";
 import { Loader2, Sparkles, CheckCircle2, AlertTriangle } from "lucide-react";
 import { toast } from "sonner";
 import { createAssignment, listAssignments, listSteps } from "@/lib/db";
-import { generateAiSteps } from "@/lib/agent/ai-steps.functions";
+import { planAssignment } from "@/lib/agent/agent-estimate-client";
 import { hasNoSchedulableSteps, saveGeneratedSteps } from "@/lib/agent/ai-steps-persist";
 import type { DecomposedStep } from "@/lib/agent/decompose";
 import type { Assignment } from "@/types/nextstep";
@@ -23,7 +22,6 @@ async function loadUnplanned(): Promise<Assignment[]> {
 
 export function AiPlanPanel() {
   const qc = useQueryClient();
-  const generate = useServerFn(generateAiSteps);
   const unplannedQ = useQuery({ queryKey: ["unplanned"], queryFn: loadUnplanned });
   const [title, setTitle] = useState("");
   const [type, setType] = useState("paper");
@@ -36,7 +34,7 @@ export function AiPlanPanel() {
   async function planFor(a: Assignment, kind: string, extra?: string) {
     setBusy(a.id);
     try {
-      const r = await generate({ data: { title: a.title, type: kind, dueAt: a.due_at, estimatedMinutes: a.estimated_minutes, details: extra } });
+      const r = await planAssignment({ title: a.title, type: kind, due_at: a.due_at, estimated_minutes: a.estimated_minutes, description: extra });
       await saveGeneratedSteps(a.id, a.title, r.steps, r.source);
       setResult({ title: a.title, ...r });
       if (r.source === "fallback") toast.warning(`AI unavailable (${r.note}). Used the built-in planner instead.`);
