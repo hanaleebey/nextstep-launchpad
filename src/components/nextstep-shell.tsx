@@ -2,7 +2,7 @@ import { Cable, Clock3, LogOut, Map, Play, Settings, UserRound } from "lucide-re
 import { useNavigate } from "@tanstack/react-router";
 import { useQueryClient } from "@tanstack/react-query";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { PlaceholderPanel } from "@/components/placeholder-panel";
+import { MoodleConnectPanel } from "@/components/moodle-connect-panel";
 import { AiPlanPanel } from "@/components/ai-plan-panel";
 import { MapView } from "@/components/map-view";
 import { ExecuteView } from "@/components/execute-view";
@@ -54,7 +54,7 @@ export function NextStepShell({ email, initialTab = "map", children }: { email: 
         <TabsContent value="map"><MapView onOpen={() => setTab("execute")} /></TabsContent>
         <TabsContent value="execute"><ExecuteView /></TabsContent>
         <TabsContent value="behind"><BehindView /></TabsContent>
-        <TabsContent value="connect"><div className="page-heading"><h1>Connect</h1></div><AiPlanPanel /><PlaceholderPanel title="Connect" icon={Cable} /></TabsContent>
+        <TabsContent value="connect"><div className="page-heading"><h1>Connect</h1></div><MoodleConnectPanel /><AiPlanPanel /></TabsContent>
                 </>)}
       </main>
     </Tabs>
