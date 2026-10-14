@@ -6,7 +6,9 @@
 //        compress – the at-risk item's steps cut to their essentials (~60%)
 //        partial  – the at-risk item gets only what fits before its deadline;
 //                   the rest is dropped (it will be submitted partial)
-//      Ranking: most deadlines preserved → least fatigue → least work dropped.
+//      Ranking: most deadlines preserved → least work cut → least fatigue.
+//      (Cutting work always looks less tiring, so we only accept a cut when it
+//      saves a deadline the full plan would miss.)
 //   3. Place the chosen plan's steps into free time (daily free minutes,
 //      next 7 days) and save each step's scheduled_date.
 //   4. Write one summary row to activity_log.
@@ -142,9 +144,9 @@ export function simulate(
   return { option, placed, droppedMinutes, ...s };
 }
 
-/** Lower is better: missed deadlines, then fatigue, then work dropped. */
+/** Lower is better: missed deadlines, then work cut, then fatigue. */
 function rank(p: SimulatedPlan): [number, number, number] {
-  return [p.missed.length, p.fatigue, p.droppedMinutes];
+  return [p.missed.length, p.droppedMinutes, p.fatigue];
 }
 
 /** Simulate all options and return the single recommendation plus the alternatives. */
