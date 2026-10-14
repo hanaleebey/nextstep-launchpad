@@ -202,6 +202,7 @@ export type Database = {
       estimate_events: {
         Row: {
           actual_minutes: number | null
+          ai_refined: boolean
           assignment_id: string
           calibration_used: boolean | null
           confidence: string
@@ -213,6 +214,7 @@ export type Database = {
         }
         Insert: {
           actual_minutes?: number | null
+          ai_refined?: boolean
           assignment_id: string
           calibration_used?: boolean | null
           confidence?: string
@@ -224,6 +226,7 @@ export type Database = {
         }
         Update: {
           actual_minutes?: number | null
+          ai_refined?: boolean
           assignment_id?: string
           calibration_used?: boolean | null
           confidence?: string
