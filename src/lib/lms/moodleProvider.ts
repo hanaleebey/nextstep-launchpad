@@ -1,4 +1,12 @@
-import { listAssignments, listCourses, listDetectedItems, listSteps, logActivity, setStepStatus, updateAssignment } from "@/lib/db";
+import {
+  listAssignments,
+  listCourses,
+  listDetectedItems,
+  listSteps,
+  logActivity,
+  setStepStatus,
+  updateAssignment,
+} from "@/lib/db";
 import { connectMoodle } from "./moodle-connect";
 import { syncMoodle, type MoodleSyncItem } from "./moodle-sync";
 import { notifyLmsDataChanged, setShowingCachedData } from "./provider-state";
@@ -37,7 +45,9 @@ export class MoodleProvider implements LmsProvider {
   private disposed = false;
   private readonly refreshIntervalMs = 5 * 60_000;
 
-  dispose() { this.disposed = true; }
+  dispose() {
+    this.disposed = true;
+  }
 
   async validateConnection(siteUrl: string, token: string): Promise<SiteInfo> {
     const result = await connectMoodle(siteUrl, token);
@@ -63,66 +73,70 @@ export class MoodleProvider implements LmsProvider {
       } catch (e) {
         if (!this.disposed) setShowingCachedData(true);
         if (force) throw e;
-      } finally { this.refreshing = null; }
+      } finally {
+        this.refreshing = null;
+      }
     })();
     return this.refreshing;
   }
 
   /** Manual "Sync with Moodle": skip the cooldown and report failures. */
-  syncNow(): Promise<void> { return this.refresh(true); }
-
-  /** Earlier syncs could save the same Moodle course twice; treat those rows as one course. */
-  private async courseGroups(): Promise<Map<string, string[]>> {
-    const groups = new Map<string, string[]>(); // canonical course row id -> all row ids for that Moodle course
-    const byLms = new Map<string, string>();
-    for (const c of await listCourses()) {
-      const key = c.lms_course_id ?? `name:${c.name.trim().toLowerCase()}`;
-      const canonical = byLms.get(key);
-      if (canonical) groups.get(canonical)!.push(c.id);
-      else { byLms.set(key, c.id); groups.set(c.id, [c.id]); }
-    }
-    return groups;
+  syncNow(): Promise<void> {
+    return this.refresh(true);
   }
 
+  /**
+   * courses has UNIQUE (user_id, lms_course_id) and the sync always sets
+   * lms_course_id, so there is exactly one row per Moodle course. No grouping.
+   */
   async getCourses(): Promise<Course[]> {
     let rows = await listCourses();
     // Existing work appears immediately. Only the first, empty import waits for sync.
     if (rows.length) void this.refresh();
-    else { await this.refresh(); rows = await listCourses(); }
-    const groups = await this.courseGroups();
+    else {
+      await this.refresh();
+      rows = await listCourses();
+    }
     // Keep database UUIDs: Execute and the planning engines use these for persistence.
-    return rows.filter((c) => groups.has(c.id)).map((c) => ({ lmsCourseId: c.id, name: c.name, code: c.code ?? c.name }));
+    return rows.map((c) => ({ lmsCourseId: c.id, name: c.name, code: c.code ?? c.name }));
   }
 
   async getAssignments(courseId: string): Promise<Assignment[]> {
     void this.refresh();
-    const [detected, assignments, groups] = await Promise.all([listDetectedItems(), listAssignments(), this.courseGroups()]);
-    const courseRows = new Set(groups.get(courseId) ?? [courseId]);
-    const withSteps = await Promise.all(assignments.filter((a) => a.course_id && courseRows.has(a.course_id)).map(async (a) => ({ a, steps: await listSteps(a.id) })));
-    // Deduplicate: one card per Moodle item AND per title+due date. Keep the row with the most progress.
-    const score = (x: (typeof withSteps)[number]) => x.steps.filter((s) => s.status !== "todo").length * 1000 + x.steps.length;
-    const sorted = [...withSteps].sort((x, y) => score(y) - score(x));
-    const seen = new Set<string>();
-    const best = new Map<string, (typeof withSteps)[number]>();
-    for (const r of sorted) {
-      const keys = [r.a.lms_assignment_id ? `cm:${r.a.lms_assignment_id}` : null, `title:${r.a.title.trim().toLowerCase()}|${r.a.due_at ?? ""}`].filter((k): k is string => !!k);
-      if (keys.some((k) => seen.has(k))) continue;
-      keys.forEach((k) => seen.add(k));
-      best.set(r.a.id, r);
-    }
-    return [...best.values()].map(({ a, steps }) => {
+    const [detected, assignments] = await Promise.all([listDetectedItems(), listAssignments()]);
+    // One row per Moodle activity, guaranteed by assignments_user_lms_unique.
+    // courseId is a courses row id, so match on it directly.
+    const withSteps = await Promise.all(
+      assignments.filter((a) => a.course_id === courseId).map(async (a) => ({ a, steps: await listSteps(a.id) })),
+    );
+    return withSteps.map(({ a, steps }) => {
       const module = this.modules.find((m) => m.cmid === a.lms_assignment_id);
       const itemType = detected.find((d) => d.assignment_id === a.id)?.item_type ?? module?.itemType ?? "paper";
       // Hard (signal) estimate from Moodle data when it is better than what's saved.
       const signal = module ? estimate(inputFor(module)) : null;
-      const estimatedMinutes = a.estimated_is_manual ? a.estimated_minutes
-        : signal && signal.confidence !== "low" && module?.itemType !== "paper" ? signal.minutes : a.estimated_minutes ?? signal?.minutes ?? null;
+      const estimatedMinutes = a.estimated_is_manual
+        ? a.estimated_minutes
+        : signal && signal.confidence !== "low" && module?.itemType !== "paper"
+          ? signal.minutes
+          : (a.estimated_minutes ?? signal?.minutes ?? null);
       return {
-        lmsAssignmentId: a.id, lmsCourseId: courseId, title: a.title, itemType,
+        lmsAssignmentId: a.id,
+        lmsCourseId: courseId,
+        title: a.title,
+        itemType,
         description: module?.introHtml ?? undefined,
-        dueAt: a.due_at, estimatedMinutes, progressPct: a.progress_pct, bufferState: a.buffer_state,
-        steps: steps.map((s) => ({ id: s.id, orderIndex: s.order_index, title: s.title,
-          timeboxMinutes: s.timebox_minutes, doneCriteria: s.done_criteria, status: s.status })),
+        dueAt: a.due_at,
+        estimatedMinutes,
+        progressPct: a.progress_pct,
+        bufferState: a.buffer_state,
+        steps: steps.map((s) => ({
+          id: s.id,
+          orderIndex: s.order_index,
+          title: s.title,
+          timeboxMinutes: s.timebox_minutes,
+          doneCriteria: s.done_criteria,
+          status: s.status,
+        })),
       };
     });
   }
@@ -130,10 +144,14 @@ export class MoodleProvider implements LmsProvider {
   async getCourseContents(courseId: string): Promise<CourseModule[]> {
     const course = (await listCourses()).find((c) => c.id === courseId);
     const modules = this.modules.filter((m) => m.lmsCourseId === course?.lms_course_id);
-    if (modules.length) return modules.map((m) => ({ id: m.cmid, name: m.title, modname: m.modname,
-      ...(m.url ? { url: m.url } : {}) }));
+    if (modules.length)
+      return modules.map((m) => ({ id: m.cmid, name: m.title, modname: m.modname, ...(m.url ? { url: m.url } : {}) }));
     // The schema persists assignments, not full Moodle sections/URLs. Reconstruct
     // available content from those rows when offline or after a page reload.
-    return (await this.getAssignments(courseId)).map((a) => ({ id: a.lmsAssignmentId, name: a.title, modname: a.itemType }));
+    return (await this.getAssignments(courseId)).map((a) => ({
+      id: a.lmsAssignmentId,
+      name: a.title,
+      modname: a.itemType,
+    }));
   }
 }
