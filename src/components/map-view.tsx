@@ -142,6 +142,7 @@ export function MapView({ onOpen }: { onOpen: () => void }) {
   const atRisk = rows.filter((r) => r.state !== "green").length;
   const totalRemaining = rows.reduce((s, r) => s + r.remaining, 0);
   const thisWeek = rows.filter((r) => r.days !== null && r.days >= 0 && r.days <= 7).length;
+  const unplannedCount = rows.filter((r) => r.totalSteps === 0).length;
 
   // Week timeline: feed unfinished steps in urgency order to the scheduler.
   const queue: SchedulableStep[] = rows.flatMap((r) =>
