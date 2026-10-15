@@ -71,7 +71,7 @@ export async function regenerateSteps(assignmentId: string, info: PlanInfo = {})
   if (!a) throw new Error("Assignment not found.");
   const input = { title: a.title, type: info.type ?? "paper", estimatedMinutes: info.estimatedMinutes ?? a.estimated_minutes, dueAt: a.due_at };
   const planned = await tailoredSteps(input, info.description);
-  if (!planned) throw new Error("The AI planner is unavailable right now. Nothing was changed — try again shortly.");
+  if (!planned) throw new Error(`The AI planner is unavailable right now (${lastAiError ?? "unknown reason"}). Nothing was changed — try again shortly.`);
   const steps = await persistDecomposition(a.id, input, planned);
   await recomputeBufferStates();
   await logActivity("estimate", `Rebuilt steps for "${a.title}".`);
