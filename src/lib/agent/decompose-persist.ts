@@ -31,7 +31,7 @@ export async function persistDecomposition(assignmentId: string, input: Decompos
 
 export interface PlanInfo { type?: string; estimatedMinutes?: number | null; description?: string | undefined }
 
-const AI_TIMEOUT_MS = 20_000;
+const;
 
 /** The real reason the last AI planning attempt failed (shown in the UI). */
 export let lastAiError: string | null = null;
