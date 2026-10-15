@@ -3,6 +3,9 @@ import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/re
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { MoodleConnectPanel } from "./moodle-connect-panel";
 import { NextStepShell } from "./nextstep-shell";
+import { resetLmsProvider } from "@/lib/lms";
+import { setShowingCachedData } from "@/lib/lms/provider-state";
+import { act } from "@testing-library/react";
 
 const mocks = vi.hoisted(() => ({ connect: vi.fn(), connection: vi.fn(), navigate: vi.fn(), sync: vi.fn(), process: vi.fn(), prepare: vi.fn(), edit: vi.fn(), confirm: vi.fn(), settings: vi.fn(), detected: vi.fn() }));
 vi.mock("@/lib/lms/moodle-connect", () => ({ connectMoodle: mocks.connect }));
@@ -26,7 +29,7 @@ function fill() {
   fireEvent.change(screen.getByLabelText("Web services token"), { target: { value: "test-only-token" } });
 }
 beforeEach(() => {
-  vi.clearAllMocks(); mocks.connection.mockResolvedValue(null);
+  vi.clearAllMocks(); resetLmsProvider(); localStorage.clear(); mocks.connection.mockResolvedValue(null);
   mocks.settings.mockResolvedValue({ timezone: "UTC" });
   mocks.detected.mockResolvedValue([]);
   mocks.sync.mockImplementation(() => new Promise(() => {}));
@@ -121,5 +124,29 @@ describe("Moodle onboarding", () => {
     mount(<NextStepShell email="student@example.edu"><h1>Settings</h1></NextStepShell>);
     fireEvent.click(screen.getByRole("button", { name: "Open LMS connection" }));
     await waitFor(() => expect(mocks.navigate).toHaveBeenCalledWith({ to: "/", search: { tab: "connect" } }));
+  });
+
+  it("opens demo Map without Moodle and returns to the saved source when disabled", async () => {
+    mount(<NextStepShell email="student@example.edu" />);
+    await screen.findByRole("heading", { name: "Get started" });
+    fireEvent.click(screen.getByRole("switch", { name: "Use demo data" }));
+    await screen.findByRole("heading", { name: "Semester map" });
+    expect(screen.getByRole("switch", { name: "Use demo data" })).toBeChecked();
+    expect(screen.getByText("Demo data", { exact: true })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("switch", { name: "Use demo data" }));
+    expect(screen.getByRole("switch", { name: "Use demo data" })).not.toBeChecked();
+    expect(screen.queryByText("Demo data", { exact: true })).not.toBeInTheDocument();
+    expect(mocks.connect).not.toHaveBeenCalled();
+  });
+
+  it("shows a non-blocking cached notice and hides it in demo mode", async () => {
+    mocks.connection.mockResolvedValue({ id: "c1", site_url: "https://moodle.example.edu" });
+    mount(<NextStepShell email="student@example.edu" initialTab="map" />);
+    await screen.findByRole("heading", { name: "Semester map" });
+    act(() => setShowingCachedData(true));
+    expect(screen.getByRole("status")).toHaveTextContent("Showing cached data");
+    expect(screen.getByRole("heading", { name: "Semester map" })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("switch", { name: "Use demo data" }));
+    expect(screen.queryByText("Showing cached data")).not.toBeInTheDocument();
   });
 });
