@@ -7,7 +7,7 @@ import { focusAssignment, useExecuteSession, withOverrides } from "@/lib/session
 import type { LmsStep } from "@/lib/lms";
 import { AlertTriangle, Ban, Check, CheckCircle2, Circle, ListChecks, Square, X, CircleAlert, Inbox, Loader2, RefreshCw, type LucideIcon } from "lucide-react";
 import { getLmsProvider, subscribeLmsDataChanged, syncLmsNow, type Assignment, type Course } from "@/lib/lms";
-import { decomposeAllUnplanned, regenerateSteps } from "@/lib/agent/decompose-persist";
+import { decomposeAllUnplanned, regenerateSteps, lastAiError } from "@/lib/agent/decompose-persist";
 import { BUFFER_LABEL, bufferStateFor, computeSlack, daysUntil, remainingMinutes } from "@/lib/engine/buffer";
 import { scheduleWeek, type SchedulableStep } from "@/lib/engine/schedule";
 import type { BufferState } from "@/types/nextstep";
@@ -82,6 +82,7 @@ export function MapView({ onOpen }: { onOpen: () => void }) {
       const r = await decomposeAllUnplanned(planInfo(), ids);
       await qc.invalidateQueries();
       if (r.assignments) toast.success(`Planned ${r.assignments} assignment(s) into ${r.steps} steps.`);
+      if (lastAiError) toast.warning(`AI planner unavailable (${lastAiError}). Steps were built from each assignment's own instructions.`);
       if (r.failed) toast.error(`The AI planner couldn't plan ${r.failed} assignment(s) right now. Try again shortly.`);
       if (!r.assignments && !r.failed) toast.success("Every assignment already has steps.");
     } catch (e) {
@@ -98,6 +99,7 @@ export function MapView({ onOpen }: { onOpen: () => void }) {
     setPlanning(true);
     try {
       const steps = await regenerateSteps(id, planInfo()[id]);
+      if (lastAiError) toast.warning(`AI planner unavailable (${lastAiError}). Steps were built from this assignment's own instructions.`);
       await qc.invalidateQueries();
       toast.success(`Rebuilt into ${steps.length} step(s).`);
     } catch (e) {
