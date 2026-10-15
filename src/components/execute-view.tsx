@@ -162,7 +162,7 @@ export function ExecuteView() {
 }
 
 function ActionCard(props: {
-  stepId: string; dbStepId?: string; progressAfter: number; lmsAssignmentId: string; itemType: string; onSuspect: (s: Sample) => void; context: string; title: string; criteria: string[]; timeboxMinutes: number; why: string;
+  stepId: string; dbStepId?: string | undefined; progressAfter: number; lmsAssignmentId: string; itemType: string; onSuspect: (s: Sample) => void; context: string; title: string; criteria: string[]; timeboxMinutes: number; why: string;
 }) {
   const total = props.timeboxMinutes * 60;
   const [elapsed, setElapsed] = useState(0);
