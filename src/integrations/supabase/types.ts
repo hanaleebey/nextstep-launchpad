@@ -163,6 +163,7 @@ export type Database = {
           confidence: string
           confirmed: boolean
           created_at: string
+          details: string | null
           estimated_is_manual: boolean
           estimated_minutes: number | null
           id: string
@@ -178,6 +179,7 @@ export type Database = {
           confidence?: string
           confirmed?: boolean
           created_at?: string
+          details?: string | null
           estimated_is_manual?: boolean
           estimated_minutes?: number | null
           id?: string
@@ -193,6 +195,7 @@ export type Database = {
           confidence?: string
           confirmed?: boolean
           created_at?: string
+          details?: string | null
           estimated_is_manual?: boolean
           estimated_minutes?: number | null
           id?: string
