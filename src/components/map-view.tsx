@@ -1,5 +1,6 @@
 // Map tab: semester overview. Reads LMS data ONLY via getLmsProvider();
 // buffer states and the week timeline come from the deterministic engine.
+import { lastAiError } from "@/lib/agent/decompose-persist";
 import { useEffect, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";

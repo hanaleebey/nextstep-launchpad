@@ -6,6 +6,10 @@ import { decompose, type DecomposedStep, type DecomposeInput } from "./decompose
 import { planAssignment } from "./agent-estimate-client";
 import { stripHtml } from "./estimate";
 import { recomputeBufferStates } from "./buffer";
+import { stepsFromText } from "./text-steps";
+
+/** Last reason the AI planner failed, shown to the student. */
+export let lastAiError: string | null = null;
 
 /**
  * Generate steps for an assignment and save them.
@@ -53,7 +57,11 @@ export async function tailoredSteps(input: DecomposeInput, description?: string)
       description: details || undefined, estimated_minutes: input.estimatedMinutes }).catch(() => null),
     timeout,
   ]);
-  return ai && ai.source === "ai" && ai.steps.length ? ai.steps : null;
+  if (ai && ai.source === "ai" && ai.steps.length) { lastAiError = null; return ai.steps; }
+  lastAiError = ai ? ai.note ?? "AI unavailable" : "The AI planner took too long to answer";
+  console.warn("[planner] AI unavailable:", lastAiError);
+  // Fallback built from this assignment's own title and instructions.
+  return stepsFromText(input.title, input.type, input.estimatedMinutes, details);
 }
 
 /** Rebuild the not-started steps of one assignment (finished steps are kept). */
@@ -62,7 +70,7 @@ export async function regenerateSteps(assignmentId: string, info: PlanInfo = {})
   if (!a) throw new Error("Assignment not found.");
   const input = { title: a.title, type: info.type ?? "paper", estimatedMinutes: info.estimatedMinutes ?? a.estimated_minutes, dueAt: a.due_at };
   const planned = await tailoredSteps(input, info.description);
-  if (!planned) throw new Error("The AI planner is unavailable right now. Nothing was changed — try again shortly.");
+  if (!planned) throw new Error("Could not plan this assignment.");
   const steps = await persistDecomposition(a.id, input, planned);
   await recomputeBufferStates();
   await logActivity("estimate", `Rebuilt steps for "${a.title}".`);
