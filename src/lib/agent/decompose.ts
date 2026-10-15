@@ -200,7 +200,7 @@ function decomposeShort(input: DecomposeInput, type: DecomposeType, total: numbe
     reading: [`Read "${title}"`, ["Reading finished", "One note written"]],
     discussion: [`Write and post your answer to "${title}"`, ["Answer posted"]],
   };
-  const [mainTitle, mainDone] = first[type] ?? first.reading!;
+  const [mainTitle, mainDone] = first[type] ?? first["reading"]!;
   const plan: [string, string[], number][] = [[mainTitle, mainDone, 1]];
   if (count >= 2) plan.push([`Write three takeaways from "${title}" in your own words`, ["Three takeaways written"], 0.35]);
   if (count >= 3) plan.push(["Write one question you still have", ["One question written"], 0.15]);
