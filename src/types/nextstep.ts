@@ -100,6 +100,7 @@ export interface DetectedItem {
   title: string;
   source_course: string | null;
   signal_value: string | null;
+  details: string | null;
   estimated_minutes: number | null;
   confidence: Confidence;
   confirmed: boolean;
@@ -120,11 +121,21 @@ export interface WeeklyAllocation {
 /** Fields the database fills in automatically; omit them on insert. */
 type Auto = "id" | "user_id" | "created_at" | "updated_at";
 export type NewCourse = Omit<Course, Auto>;
-export type NewAssignment = Omit<Assignment, Auto | "status" | "actual_minutes" | "progress_pct" | "buffer_state" | "estimated_is_manual"> &
+export type NewAssignment = Omit<
+  Assignment,
+  Auto | "status" | "actual_minutes" | "progress_pct" | "buffer_state" | "estimated_is_manual"
+> &
   Partial<Pick<Assignment, "status" | "actual_minutes" | "progress_pct" | "buffer_state" | "estimated_is_manual">>;
-export type NewStep = Omit<Step, "id" | "created_at" | "updated_at" | "status" | "scheduled_date"> & { status?: StepStatus; scheduled_date?: string | null };
-export type NewEstimateEvent = Omit<EstimateEvent, "id" | "created_at" | "calibration_used" | "excluded_reason" | "ai_refined"> &
+export type NewStep = Omit<Step, "id" | "created_at" | "updated_at" | "status" | "scheduled_date"> & {
+  status?: StepStatus;
+  scheduled_date?: string | null;
+};
+export type NewEstimateEvent = Omit<
+  EstimateEvent,
+  "id" | "created_at" | "calibration_used" | "excluded_reason" | "ai_refined"
+> &
   Partial<Pick<EstimateEvent, "calibration_used" | "excluded_reason" | "ai_refined">>; // optional — DB defaults fill them
-export type NewDetectedItem = Omit<DetectedItem, Auto | "confirmed" | "estimated_is_manual" | "assignment_id"> & Partial<Pick<DetectedItem, "confirmed" | "estimated_is_manual" | "assignment_id">>;
+export type NewDetectedItem = Omit<DetectedItem, Auto | "confirmed" | "estimated_is_manual" | "assignment_id"> &
+  Partial<Pick<DetectedItem, "confirmed" | "estimated_is_manual" | "assignment_id">>;
 export type NewLmsConnection = Omit<LmsConnection, Auto | "connected_at">;
 export type NewWeeklyAllocation = Omit<WeeklyAllocation, Auto>;
