@@ -7,7 +7,7 @@ const sum = (xs: { timebox_minutes: number }[]) => xs.reduce((s, x) => s + x.tim
 describe("decompose", () => {
   for (const type of ["paper", "quiz", "reading", "discussion", "project"]) {
     it(`${type}: 4–8 steps, valid timeboxes and checklists`, () => {
-      for (const minutes of [30, 90, 180, 300, 600]) {
+      for (const minutes of [60, 90, 180, 300, 600]) {
         const steps = decompose({ ...base, type, estimatedMinutes: minutes });
         expect(steps.length).toBeGreaterThanOrEqual(4);
         expect(steps.length).toBeLessThanOrEqual(8);
@@ -50,8 +50,21 @@ describe("decompose", () => {
   it("maps loose type names to templates", () => {
     expect(normaliseType("essay")).toBe("paper");
     expect(normaliseType("post")).toBe("discussion");
-    expect(normaliseType("video")).toBe("reading");
+    expect(normaliseType("video")).toBe("video");
     expect(normaliseType("anything")).toBe("project");
+  });
+
+  it("short bounded work keeps its exact minutes (no 15-min floor)", () => {
+    const steps = decompose({ ...base, title: "Classical Conditioning", type: "video", estimatedMinutes: 4 });
+    expect(steps).toHaveLength(1);
+    expect(steps[0]!.timebox_minutes).toBe(4);
+    expect(steps[0]!.title).toContain("Classical Conditioning");
+    expect(sum(decompose({ ...base, type: "reading", estimatedMinutes: 23 }))).toBe(23);
+  });
+
+  it("names the assignment in its steps", () => {
+    const steps = decompose({ ...base, title: "Lab Report 2", type: "paper", estimatedMinutes: 120 });
+    expect(steps[0]!.title).toContain("Lab Report 2");
   });
 
   it("step count scales with the estimate", () => {

@@ -2,6 +2,8 @@ import { listAssignments, listCourses, listDetectedItems, listSteps, logActivity
 import { connectMoodle } from "./moodle-connect";
 import { syncMoodle, type MoodleSyncItem } from "./moodle-sync";
 import { notifyLmsDataChanged, setShowingCachedData } from "./provider-state";
+import { estimate } from "@/lib/agent/estimate";
+import { inputFor } from "./process-sync";
 import type { Assignment, Course, CourseModule, LmsProvider, SiteInfo } from "./types";
 
 /**
@@ -81,15 +83,30 @@ export class MoodleProvider implements LmsProvider {
   async getAssignments(courseId: string): Promise<Assignment[]> {
     void this.refresh();
     const [detected, assignments] = await Promise.all([listDetectedItems(), listAssignments()]);
-    return Promise.all(assignments.filter((a) => a.course_id === courseId).map(async (a) => ({
-      lmsAssignmentId: a.id, lmsCourseId: courseId, title: a.title,
-      itemType: detected.find((d) => d.assignment_id === a.id)?.item_type
-        ?? this.modules.find((m) => m.cmid === a.lms_assignment_id)?.itemType ?? "paper",
-      dueAt: a.due_at, estimatedMinutes: a.estimated_minutes, progressPct: a.progress_pct,
-      bufferState: a.buffer_state,
-      steps: (await listSteps(a.id)).map((s) => ({ id: s.id, orderIndex: s.order_index, title: s.title,
-        timeboxMinutes: s.timebox_minutes, doneCriteria: s.done_criteria, status: s.status })),
-    })));
+    const withSteps = await Promise.all(assignments.filter((a) => a.course_id === courseId).map(async (a) => ({ a, steps: await listSteps(a.id) })));
+    // Deduplicate: one card per Moodle item (or per title when no Moodle id). Keep the row with the most progress.
+    const best = new Map<string, (typeof withSteps)[number]>();
+    for (const r of withSteps) {
+      const key = r.a.lms_assignment_id ?? `title:${r.a.title.trim().toLowerCase()}`;
+      const cur = best.get(key);
+      const score = (x: typeof r) => x.steps.filter((s) => s.status !== "todo").length * 1000 + x.steps.length;
+      if (!cur || score(r) > score(cur)) best.set(key, r);
+    }
+    return [...best.values()].map(({ a, steps }) => {
+      const module = this.modules.find((m) => m.cmid === a.lms_assignment_id);
+      const itemType = detected.find((d) => d.assignment_id === a.id)?.item_type ?? module?.itemType ?? "paper";
+      // Hard (signal) estimate from Moodle data when it is better than what's saved.
+      const signal = module ? estimate(inputFor(module)) : null;
+      const estimatedMinutes = a.estimated_is_manual ? a.estimated_minutes
+        : signal && signal.confidence !== "low" && module?.itemType !== "paper" ? signal.minutes : a.estimated_minutes ?? signal?.minutes ?? null;
+      return {
+        lmsAssignmentId: a.id, lmsCourseId: courseId, title: a.title, itemType,
+        description: module?.introHtml ?? undefined,
+        dueAt: a.due_at, estimatedMinutes, progressPct: a.progress_pct, bufferState: a.buffer_state,
+        steps: steps.map((s) => ({ id: s.id, orderIndex: s.order_index, title: s.title,
+          timeboxMinutes: s.timebox_minutes, doneCriteria: s.done_criteria, status: s.status })),
+      };
+    });
   }
 
   async getCourseContents(courseId: string): Promise<CourseModule[]> {

@@ -9,8 +9,8 @@ import { weekInTimezone } from "@/lib/time/week-in-timezone";
 import type { DetectedItem, NewDetectedItem } from "@/types/nextstep";
 import type { MoodleSyncItem, MoodleSyncResult } from "./moodle-sync";
 
-function inputFor(item: MoodleSyncItem): EstimateInput {
-  if (item.itemType === "video") return { kind: "video", signals: { durationSeconds: item.videoDurationSeconds } };
+export function inputFor(item: MoodleSyncItem): EstimateInput {
+  if (item.itemType === "video") return { kind: "video", signals: { durationSeconds: item.videoDurationSeconds, text: `${item.title} ${item.introHtml ?? ""}` } };
   if (item.itemType === "read") return { kind: "read", signals: { wordCount: item.wordCount ?? null } };
   if (item.itemType === "quiz") return { kind: "quiz", signals: { timeLimitSeconds: item.quizTimeLimitSeconds, questionCount: item.questionCount ?? null } };
   if (item.itemType === "paper") return { kind: "writing", signals: { targetWords: item.targetWords ?? null, hasRubric: Boolean(item.rubric?.length) } };

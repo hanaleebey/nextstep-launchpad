@@ -36,6 +36,8 @@ export interface Assignment {
   itemType: LmsItemType;
   dueAt: string | null; // ISO timestamp
   estimatedMinutes: number | null;
+  /** Moodle description/prompt (HTML), when known. */
+  description?: string | undefined;
   progressPct: number;
   bufferState?: "green" | "amber" | "red";
   steps?: LmsStep[];

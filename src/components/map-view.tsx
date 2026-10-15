@@ -7,7 +7,7 @@ import { focusAssignment, useExecuteSession, withOverrides } from "@/lib/session
 import type { LmsStep } from "@/lib/lms";
 import { AlertTriangle, Ban, Check, CheckCircle2, Circle, ListChecks, Square, X, CircleAlert, Inbox, Loader2, RefreshCw, type LucideIcon } from "lucide-react";
 import { getLmsProvider, subscribeLmsDataChanged, syncLmsNow, type Assignment, type Course } from "@/lib/lms";
-import { decomposeAllUnplanned } from "@/lib/agent/decompose-persist";
+import { decomposeAllUnplanned, regenerateSteps } from "@/lib/agent/decompose-persist";
 import { BUFFER_LABEL, bufferStateFor, computeSlack, daysUntil, remainingMinutes } from "@/lib/engine/buffer";
 import { scheduleWeek, type SchedulableStep } from "@/lib/engine/schedule";
 import type { BufferState } from "@/types/nextstep";
@@ -71,12 +71,27 @@ export function MapView({ onOpen }: { onOpen: () => void }) {
   async function planUnplanned(ids?: string[]) {
     setPlanning(true);
     try {
-      const types = Object.fromEntries((data?.assignments ?? []).map((a) => [a.lmsAssignmentId, a.itemType]));
-      const r = await decomposeAllUnplanned(types, ids);
+      const r = await decomposeAllUnplanned(planInfo(), ids);
       await qc.invalidateQueries();
       toast.success(r.assignments ? `Planned ${r.assignments} assignment(s) into ${r.steps} steps.` : "Every assignment already has steps.");
     } catch (e) {
       toast.error(`Couldn't plan steps: ${e instanceof Error ? e.message : String(e)}`);
+    } finally { setPlanning(false); }
+  }
+
+  function planInfo() {
+    return Object.fromEntries((data?.assignments ?? []).map((a) => [a.lmsAssignmentId,
+      { type: a.itemType, estimatedMinutes: a.estimatedMinutes, description: a.description }]));
+  }
+
+  async function rebuild(id: string) {
+    setPlanning(true);
+    try {
+      const steps = await regenerateSteps(id, planInfo()[id]);
+      await qc.invalidateQueries();
+      toast.success(`Rebuilt into ${steps.length} step(s).`);
+    } catch (e) {
+      toast.error(`Couldn't rebuild steps: ${e instanceof Error ? e.message : String(e)}`);
     } finally { setPlanning(false); }
   }
 
@@ -242,6 +257,8 @@ export function MapView({ onOpen }: { onOpen: () => void }) {
               courseCode={courseCode.get(openRow.a.lmsCourseId) ?? ""}
               onClose={() => setOpenId(null)}
               onWork={() => { focusAssignment(openRow.a.lmsAssignmentId); onOpen(); }}
+              planning={planning}
+              onPlan={() => { void rebuild(openRow.a.lmsAssignmentId); }}
             />
           )}
           <section aria-labelledby="map-week-title" className="map-card">
@@ -309,6 +326,8 @@ function AssignmentDetail(props: {
   courseCode: string;
   onClose: () => void;
   onWork: () => void;
+  planning: boolean;
+  onPlan: () => void;
 }) {
   const { a, steps, progress, days, remaining, state } = props.row;
   const hasTodo = steps.some((s) => s.status === "todo");
@@ -324,7 +343,7 @@ function AssignmentDetail(props: {
       <div className="map-progress" role="progressbar" aria-valuenow={progress} aria-valuemin={0} aria-valuemax={100} aria-label="Assignment progress"><span style={{ width: `${progress}%` }} /></div>
       <p className="map-meta">{progress}% done · est. {formatMinutes(remaining)} left</p>
       {steps.length === 0 ? (
-        <p className="map-empty">No steps planned yet. Generate steps from the Connect tab.</p>
+        <p className="map-empty">No steps planned yet.</p>
       ) : (
         <ol className="map-steps">
           {[...steps].sort((x, y) => x.orderIndex - y.orderIndex).map((s) => {
@@ -348,6 +367,10 @@ function AssignmentDetail(props: {
           })}
         </ol>
       )}
+      <button type="button" className="map-btn" onClick={props.onPlan} disabled={props.planning}>
+        {props.planning ? <Loader2 size={14} className="map-spin" aria-hidden="true" /> : <ListChecks size={14} aria-hidden="true" />}
+        {steps.length ? "Rebuild steps for this assignment" : "Generate steps"}
+      </button>
       {hasTodo && <button type="button" className="exec-btn exec-done" onClick={props.onWork}>Work on this in Execute</button>}
     </section>
   );
