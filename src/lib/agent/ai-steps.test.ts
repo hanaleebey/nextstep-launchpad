@@ -8,7 +8,7 @@ describe("sanitizeAiSteps", () => {
   it("clamps timeboxes to 15–50 and criteria to 3", () => {
     const out = sanitizeAiSteps({ steps: [step(3), step(90), step(22), step(40)] })!;
     expect(out.map((s) => s.timebox_minutes)).toEqual([3, 50, 22, 40]);
-    expect(out[0]!.done_criteria).toHaveLength(3);
+    expect(out[0]!.done_criteria).toHaveLength(4);
   });
   it("caps at 8 steps and rejects fewer than 4", () => {
     expect(sanitizeAiSteps({ steps: Array(12).fill(step(20)) })).toHaveLength(8);
