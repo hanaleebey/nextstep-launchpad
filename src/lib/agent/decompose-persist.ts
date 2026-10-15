@@ -13,7 +13,11 @@ import { recomputeBufferStates } from "./buffer";
  * - Only not-started ('todo') steps are replaced.
  * - New steps are numbered after any kept ones so order stays unique.
  */
-export async function persistDecomposition(assignmentId: string, input: DecomposeInput, planned?: DecomposedStep[]): Promise<Step[]> {
+export async function persistDecomposition(
+  assignmentId: string,
+  input: DecomposeInput,
+  planned?: DecomposedStep[],
+): Promise<Step[]> {
   const existing = await listSteps(assignmentId);
   const kept = existing.filter((s) => s.status !== "todo");
   await deleteTodoSteps(assignmentId);
@@ -29,9 +33,11 @@ export async function persistDecomposition(assignmentId: string, input: Decompos
   return createSteps(rows);
 }
 
-export interface PlanInfo { type?: string; estimatedMinutes?: number | null; description?: string | undefined }
-
-const;
+export interface PlanInfo {
+  type?: string;
+  estimatedMinutes?: number | null;
+  description?: string | undefined;
+}
 
 /** The real reason the last AI planning attempt failed (shown in the UI). */
 export let lastAiError: string | null = null;
@@ -48,18 +54,33 @@ export async function tailoredSteps(input: DecomposeInput, description?: string)
   const isVideo = ["video", "lecture"].includes(input.type.toLowerCase());
   if (isVideo && details.length < 40) {
     const minutes = Math.max(1, Math.round(input.estimatedMinutes ?? 20));
-    return [{ order_index: 0, title: `Watch "${input.title.trim()}"`, timebox_minutes: Math.min(50, minutes), done_criteria: ["Watched to the end"] }];
+    return [
+      {
+        order_index: 0,
+        title: `Watch "${input.title.trim()}"`,
+        timebox_minutes: Math.min(50, minutes),
+        done_criteria: ["Watched to the end"],
+      },
+    ];
   }
   const timeout = new Promise<null>((r) => setTimeout(() => r(null), AI_TIMEOUT_MS));
   const ai = await Promise.race([
-    planAssignment({ title: input.title, type: input.type, due_at: input.dueAt,
-      description: details || undefined, estimated_minutes: input.estimatedMinutes }).catch((e) => {
+    planAssignment({
+      title: input.title,
+      type: input.type,
+      due_at: input.dueAt,
+      description: details || undefined,
+      estimated_minutes: input.estimatedMinutes,
+    }).catch((e) => {
       lastAiError = e instanceof Error ? e.message : "AI unavailable";
       return null;
     }),
     timeout,
   ]);
-  if (ai && ai.source === "ai" && ai.steps.length) { lastAiError = null; return ai.steps; }
+  if (ai && ai.source === "ai" && ai.steps.length) {
+    lastAiError = null;
+    return ai.steps;
+  }
   // Keep the server's exact message (or a timeout note) so the UI can show it.
   lastAiError = ai === null ? "The AI planner took too long to answer." : (ai.note ?? "AI unavailable");
   return null;
@@ -69,9 +90,17 @@ export async function tailoredSteps(input: DecomposeInput, description?: string)
 export async function regenerateSteps(assignmentId: string, info: PlanInfo = {}): Promise<Step[]> {
   const a = (await listAssignments()).find((x) => x.id === assignmentId);
   if (!a) throw new Error("Assignment not found.");
-  const input = { title: a.title, type: info.type ?? "paper", estimatedMinutes: info.estimatedMinutes ?? a.estimated_minutes, dueAt: a.due_at };
+  const input = {
+    title: a.title,
+    type: info.type ?? "paper",
+    estimatedMinutes: info.estimatedMinutes ?? a.estimated_minutes,
+    dueAt: a.due_at,
+  };
   const planned = await tailoredSteps(input, info.description);
-  if (!planned) throw new Error(`The AI planner is unavailable right now (${lastAiError ?? "unknown reason"}). Nothing was changed — try again shortly.`);
+  if (!planned)
+    throw new Error(
+      `The AI planner is unavailable right now (${lastAiError ?? "unknown reason"}). Nothing was changed — try again shortly.`,
+    );
   const steps = await persistDecomposition(a.id, input, planned);
   await recomputeBufferStates();
   await logActivity("estimate", `Rebuilt steps for "${a.title}".`);
@@ -94,9 +123,17 @@ export async function decomposeAllUnplanned(
   for (const a of all) {
     if ((await listSteps(a.id)).length) continue;
     const i = info[a.id] ?? {};
-    const input = { title: a.title, type: i.type ?? "paper", estimatedMinutes: i.estimatedMinutes ?? a.estimated_minutes, dueAt: a.due_at };
+    const input = {
+      title: a.title,
+      type: i.type ?? "paper",
+      estimatedMinutes: i.estimatedMinutes ?? a.estimated_minutes,
+      dueAt: a.due_at,
+    };
     const planned = await tailoredSteps(input, i.description);
-    if (!planned) { failed++; continue; }
+    if (!planned) {
+      failed++;
+      continue;
+    }
     const created = await persistDecomposition(a.id, input, planned);
     assignments++;
     steps += created.length;
