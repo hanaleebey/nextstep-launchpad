@@ -13,9 +13,8 @@
 //   Failure : { error: { code, message } }
 //
 // Secrets (set with `supabase secrets set ...`):
-//   MODEL_API_KEY   required
-//   MODEL_BASE_URL  optional, default https://api.openai.com/v1  (any OpenAI-compatible API)
-//   MODEL_NAME      optional, default gpt-4o-mini
+//   MODEL_API_KEY   required - your Google AI Studio (Gemini) key, starts with "AIza"
+//   MODEL_NAME      optional, default gemini-2.5-flash
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.4";
 
@@ -211,32 +210,23 @@ Deno.serve(async (req: Request): Promise<Response> => {
   if (!apiKey) {
     return fail("NOT_CONFIGURED", "The model key is not set on the server.");
   }
-  const baseUrl = (Deno.env.get("MODEL_BASE_URL") ?? "https://api.openai.com/v1")
-    .replace(/\/+$/, "");
-  const model = Deno.env.get("MODEL_NAME") ?? "gpt-4o-mini";
+  const model = Deno.env.get("MODEL_NAME") ?? "gemini-2.5-flash";
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`;
 
-  // --- call the model ------------------------------------------------------
+  // --- call Gemini ---------------------------------------------------------
   let raw: string;
   try {
-    const res = await fetch(`${baseUrl}/chat/completions`, {
+    const res = await fetch(url, {
       method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${apiKey}`,
-      },
+      headers: { "Content-Type": "application/json", "x-goog-api-key": apiKey },
       body: JSON.stringify({
-        model,
-        temperature: 0.4,
-        // If your provider rejects response_format, delete this line -
-        // validate() below is the real guard.
-        response_format: { type: "json_object" },
-        messages: [
-          { role: "system", content: SYSTEM_PROMPT },
-          {
-            role: "user",
-            content: userPrompt(mode, assignment as Record<string, unknown>, body.signals),
-          },
-        ],
+        systemInstruction: { parts: [{ text: SYSTEM_PROMPT }] },
+        contents: [{
+          role: "user",
+          parts: [{ text: userPrompt(mode, assignment as Record<string, unknown>, body.signals) }],
+        }],
+        // Ask Gemini for raw JSON; validate() below is still the real guard.
+        generationConfig: { temperature: 0.4, responseMimeType: "application/json" },
       }),
       signal: AbortSignal.timeout(MODEL_TIMEOUT_MS),
     });
@@ -247,7 +237,8 @@ Deno.serve(async (req: Request): Promise<Response> => {
     }
 
     const payload = await res.json();
-    const content = payload?.choices?.[0]?.message?.content;
+    const content = payload?.candidates?.[0]?.content?.parts
+      ?.map((p: { text?: string }) => p.text ?? "").join("");
     if (typeof content !== "string" || !content.trim()) {
       return fail("INVALID_MODEL_OUTPUT", "The model returned an empty answer.");
     }
