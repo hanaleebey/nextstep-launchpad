@@ -435,3 +435,25 @@
   .detected-row { grid-template-columns:50px minmax(0,1fr); }
   .detected-estimate { grid-column:2; grid-row:auto; flex-direction:row; flex-wrap:wrap; }
 }
+
+/* Map: readable progress on red rows + assignment detail panel */
+.map-row-red .map-progress { background: color-mix(in oklch, var(--red) 25%, var(--surface)); }
+.map-row-red .map-progress span { background: var(--ink); }
+.map-progress { height: 8px; }
+.map-detail { display: grid; gap: 10px; }
+.map-detail h2 { margin-bottom: 0; }
+.map-detail-head { display: flex; justify-content: space-between; align-items: center; }
+.map-icon-btn { display: inline-flex; padding: 6px; border-radius: 999px; border: 1px solid var(--border); background: var(--surface); color: var(--muted); }
+.map-icon-btn:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
+.map-steps { list-style: none; padding: 0; display: grid; gap: 8px; }
+.map-step { border: 1px solid var(--border); border-radius: 12px; padding: 10px; display: grid; gap: 6px; background: var(--surface-2); }
+.map-step-head { display: flex; gap: 8px; align-items: baseline; }
+.map-step-num { font-size: .75rem; font-weight: 700; color: var(--primary); }
+.map-step-title { flex: 1; font-size: .88rem; color: var(--ink); font-weight: 600; }
+.map-step-status { display: inline-flex; align-items: center; gap: 4px; font-size: .75rem; font-weight: 600; color: var(--muted); }
+.map-step-done .map-step-status { color: var(--green); }
+.map-step-blocked .map-step-status { color: var(--red); }
+.map-step-stopped .map-step-status { color: var(--amber); }
+.map-step details { font-size: .82rem; color: var(--muted); }
+.map-step summary { cursor: pointer; color: var(--primary); font-weight: 600; }
+.map-step details ul { margin: 6px 0 0 18px; list-style: disc; }

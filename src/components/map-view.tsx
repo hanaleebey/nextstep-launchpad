@@ -1,7 +1,10 @@
 // Map tab: semester overview. Reads LMS data ONLY via getLmsProvider();
 // buffer states and the week timeline come from the deterministic engine.
+import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { AlertTriangle, CheckCircle2, CircleAlert, Inbox, Loader2, RefreshCw, type LucideIcon } from "lucide-react";
+import { focusAssignment, useExecuteSession, withOverrides } from "@/lib/session/execute-store";
+import type { LmsStep } from "@/lib/lms";
+import { AlertTriangle, Ban, Check, CheckCircle2, Circle, Square, X, CircleAlert, Inbox, Loader2, RefreshCw, type LucideIcon } from "lucide-react";
 import { getLmsProvider, type Assignment, type Course } from "@/lib/lms";
 import { BUFFER_LABEL, bufferStateFor, computeSlack, daysUntil, remainingMinutes } from "@/lib/engine/buffer";
 import { scheduleWeek, type SchedulableStep } from "@/lib/engine/schedule";
@@ -54,6 +57,8 @@ function syncedAgo(ts: number): string {
 
 export function MapView({ onOpen }: { onOpen: () => void }) {
   const { data, isLoading, isError, refetch } = useQuery({ queryKey: ["lms", "map"], queryFn: loadMapData });
+  const session = useExecuteSession();
+  const [openId, setOpenId] = useState<string | null>(null);
 
   if (isLoading) {
     return (
@@ -109,7 +114,7 @@ export function MapView({ onOpen }: { onOpen: () => void }) {
 
   // Week timeline: feed unfinished steps in urgency order to the scheduler.
   const queue: SchedulableStep[] = rows.flatMap((r) =>
-    (r.a.steps ?? [])
+    r.steps
       .filter((s) => s.status === "todo")
       .map((s) => ({
         assignmentId: r.a.lmsAssignmentId,
@@ -169,16 +174,16 @@ export function MapView({ onOpen }: { onOpen: () => void }) {
                     <span className="course-chip">{courseCode.get(r.a.lmsCourseId)}</span>
                     <h3>{r.a.title}</h3>
                     <p className="map-due">{dueLine(r.a.dueAt, r.days)}</p>
-                    <div className="map-progress" role="progressbar" aria-valuenow={r.a.progressPct} aria-valuemin={0} aria-valuemax={100} aria-label={`${r.a.title} progress`}>
-                      <span style={{ width: `${r.a.progressPct}%` }} />
+                    <div className="map-progress" role="progressbar" aria-valuenow={r.progress} aria-valuemin={0} aria-valuemax={100} aria-label={`${r.a.title} progress`}>
+                      <span style={{ width: `${r.progress}%` }} />
                     </div>
                     <p className="map-meta">
-                      {r.doneSteps} of {r.totalSteps} steps · est. {formatMinutes(r.remaining)} left
+                      {r.totalSteps ? `${r.doneSteps} of ${r.totalSteps} steps · ${r.progress}%` : "No steps planned yet"} · est. {formatMinutes(r.remaining)} left
                     </p>
                   </div>
                   <div className="map-row-side">
                     <BufferChip state={r.state} />
-                    <button type="button" className="map-btn" onClick={onOpen}>{started ? "Resume" : "Open"}</button>
+                    <button type="button" className="map-btn" aria-expanded={openId === r.a.lmsAssignmentId} onClick={() => setOpenId(openId === r.a.lmsAssignmentId ? null : r.a.lmsAssignmentId)}>{openId === r.a.lmsAssignmentId ? "Close" : started ? "Resume" : "Open"}</button>
                   </div>
                 </li>
               );
@@ -187,6 +192,14 @@ export function MapView({ onOpen }: { onOpen: () => void }) {
         </section>
 
         <aside className="map-aside">
+          {openRow && (
+            <AssignmentDetail
+              row={openRow}
+              courseCode={courseCode.get(openRow.a.lmsCourseId) ?? ""}
+              onClose={() => setOpenId(null)}
+              onWork={() => { focusAssignment(openRow.a.lmsAssignmentId); onOpen(); }}
+            />
+          )}
           <section aria-labelledby="map-week-title" className="map-card">
             <h2 id="map-week-title">This week</h2>
             {blocks.length === 0 ? (
@@ -236,5 +249,62 @@ function Stat({ label, value }: { label: string; value: string }) {
       <span className="map-stat-label">{label}</span>
       <span className="map-stat-value">{value}</span>
     </div>
+  );
+}
+
+const STEP_STATUS: Record<LmsStep["status"], { label: string; Icon: LucideIcon }> = {
+  todo: { label: "To do", Icon: Circle },
+  done: { label: "Done", Icon: Check },
+  blocked: { label: "Blocked", Icon: Ban },
+  stopped: { label: "Stopped at timebox", Icon: Square },
+};
+
+/** "Open" panel: the full step breakdown and done criteria for one assignment. */
+function AssignmentDetail(props: {
+  row: { a: Assignment; steps: LmsStep[]; progress: number; days: number | null; remaining: number; state: BufferState };
+  courseCode: string;
+  onClose: () => void;
+  onWork: () => void;
+}) {
+  const { a, steps, progress, days, remaining, state } = props.row;
+  const hasTodo = steps.some((s) => s.status === "todo");
+  return (
+    <section className="map-card map-detail" aria-labelledby="map-detail-title">
+      <div className="map-detail-head">
+        <span className="course-chip">{props.courseCode}</span>
+        <button type="button" className="map-icon-btn" aria-label="Close assignment details" onClick={props.onClose}><X size={16} aria-hidden="true" /></button>
+      </div>
+      <h2 id="map-detail-title">{a.title}</h2>
+      <p className="map-due">{dueLine(a.dueAt, days)}</p>
+      <BufferChip state={state} />
+      <div className="map-progress" role="progressbar" aria-valuenow={progress} aria-valuemin={0} aria-valuemax={100} aria-label="Assignment progress"><span style={{ width: `${progress}%` }} /></div>
+      <p className="map-meta">{progress}% done · est. {formatMinutes(remaining)} left</p>
+      {steps.length === 0 ? (
+        <p className="map-empty">No steps planned yet. Generate steps from the Connect tab.</p>
+      ) : (
+        <ol className="map-steps">
+          {[...steps].sort((x, y) => x.orderIndex - y.orderIndex).map((s) => {
+            const { label, Icon } = STEP_STATUS[s.status];
+            return (
+              <li key={s.orderIndex} className={`map-step map-step-${s.status}`}>
+                <div className="map-step-head">
+                  <span className="map-step-num">{s.orderIndex + 1}</span>
+                  <span className="map-step-title">{s.title}</span>
+                  <span className="map-block-min">{s.timeboxMinutes}m</span>
+                </div>
+                <span className="map-step-status"><Icon size={13} aria-hidden="true" />{label}</span>
+                {s.doneCriteria.length > 0 && (
+                  <details>
+                    <summary>Good-enough done ({s.doneCriteria.length})</summary>
+                    <ul>{s.doneCriteria.map((c, i) => <li key={i}>{c}</li>)}</ul>
+                  </details>
+                )}
+              </li>
+            );
+          })}
+        </ol>
+      )}
+      {hasTodo && <button type="button" className="exec-btn exec-done" onClick={props.onWork}>Work on this in Execute</button>}
+    </section>
   );
 }
