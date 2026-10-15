@@ -67,7 +67,8 @@ describe("MoodleProvider", () => {
   it("re-reads an empty database after first sync", async () => {
     mocks.courses.mockResolvedValueOnce([]);
     expect(await new MoodleProvider().getCourses()).toHaveLength(1);
-    expect(mocks.courses).toHaveBeenCalledTimes(3);
+    // One read finds nothing, the sync runs, the second read returns the new row.
+    expect(mocks.courses).toHaveBeenCalledTimes(2);
   });
   it("maps fresh module URLs without losing the saved assignments", async () => {
     mocks.sync.mockResolvedValue({ ...success, items: [{ lmsCourseId: "42", cmid: "73", title: "Read memory chapter", modname: "page", url: "https://moodle.example.edu/page/73" }] });
