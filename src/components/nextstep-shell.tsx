@@ -24,16 +24,17 @@ export function NextStepShell({ email, initialTab, children }: { email: string; 
   const providerState = useSyncExternalStore(subscribeProviderState, getProviderState, getServerProviderState);
   useEffect(() => { loadDemoPreference(email); }, [email]);
   useEffect(() => {
+    // Reset active queries too, so switching sources never leaves the previous
+    // source visible. This also covers restoring the saved demo preference.
+    void queryClient.resetQueries({ queryKey: ["lms"] });
+  }, [providerState.demo, queryClient]);
+  useEffect(() => {
     if (connection.data !== undefined && configureLmsConnection(connection.data)) {
       void queryClient.invalidateQueries({ queryKey: ["lms"] });
     }
   }, [connection.data, queryClient]);
   function toggleDemo(demo: boolean) {
     setUseDemoData(demo);
-    // Remove the previous source before mounting the next one: never show real
-    // assignments under the demo label (or vice versa).
-    void queryClient.cancelQueries({ queryKey: ["lms"] });
-    queryClient.removeQueries({ queryKey: ["lms"] });
     if (!children) setTab("map");
   }
   const [selectedTab, setTab] = useState<string | undefined>(children ? "settings" : initialTab);
