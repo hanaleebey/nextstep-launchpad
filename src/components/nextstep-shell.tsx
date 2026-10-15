@@ -1,4 +1,4 @@
-import { Cable, CheckCircle2, Clock3, LogOut, Map, Play, Settings, UserRound } from "lucide-react";
+import { Cable, CheckCircle2, CloudOff, Clock3, LogOut, Map, Play, Settings, UserRound } from "lucide-react";
 import { useNavigate } from "@tanstack/react-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
@@ -8,8 +8,11 @@ import { MoodleConnectPanel } from "@/components/moodle-connect-panel";
 import { MapView } from "@/components/map-view";
 import { ExecuteView } from "@/components/execute-view";
 import { BehindView } from "@/components/behind-view";
-import { useState, type ReactNode } from "react";
+import { useEffect, useState, useSyncExternalStore, type ReactNode } from "react";
 import { supabase } from "@/integrations/supabase/client";
+import { Switch } from "@/components/ui/switch";
+import { configureLmsConnection, resetLmsProvider } from "@/lib/lms";
+import { getProviderState, getServerProviderState, loadDemoPreference, setUseDemoData, subscribeProviderState } from "@/lib/lms/provider-state";
 
 // The shell hosts the tab views on "/" and, when `children` is given, a
 // standalone page (e.g. /settings) in the same frame. Settings is a real route,
@@ -18,9 +21,24 @@ export function NextStepShell({ email, initialTab, children }: { email: string; 
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const connection = useQuery({ queryKey: ["lms-connection"], queryFn: getLmsConnection });
+  const providerState = useSyncExternalStore(subscribeProviderState, getProviderState, getServerProviderState);
+  useEffect(() => { loadDemoPreference(email); }, [email]);
+  useEffect(() => {
+    if (connection.data !== undefined && configureLmsConnection(connection.data)) {
+      void queryClient.invalidateQueries({ queryKey: ["lms"] });
+    }
+  }, [connection.data, queryClient]);
+  function toggleDemo(demo: boolean) {
+    setUseDemoData(demo);
+    // Remove the previous source before mounting the next one: never show real
+    // assignments under the demo label (or vice versa).
+    void queryClient.cancelQueries({ queryKey: ["lms"] });
+    queryClient.removeQueries({ queryKey: ["lms"] });
+    if (!children) setTab("map");
+  }
   const [selectedTab, setTab] = useState<string | undefined>(children ? "settings" : initialTab);
   // A saved connection is the first-run marker. Explicit tab choices always win.
-  const tab = selectedTab ?? (connection.data === null ? "connect" : "map");
+  const tab = selectedTab ?? (!providerState.demo && connection.data === null ? "connect" : "map");
   function changeTab(value: string) {
     if (value === "settings") navigate({ to: "/settings" });
     else if (children) navigate({ to: "/", search: { tab: value } });
@@ -30,6 +48,7 @@ export function NextStepShell({ email, initialTab, children }: { email: string; 
     await queryClient.cancelQueries();
     queryClient.clear();
     await supabase.auth.signOut();
+    resetLmsProvider();
     navigate({ to: "/auth", replace: true });
   }
   return (
@@ -57,6 +76,13 @@ export function NextStepShell({ email, initialTab, children }: { email: string; 
         </div>
       </header>
       <main className="shell-container">
+        <div className="lms-source-bar">
+          <label className="demo-data-control" htmlFor="use-demo-data">
+            <Switch id="use-demo-data" checked={providerState.demo} onCheckedChange={toggleDemo} />
+            Use demo data
+          </label>
+          {providerState.demo ? <span className="text-sm text-muted-foreground" role="status">Demo data</span> : providerState.cached && <span className="cached-data-notice" role="status"><CloudOff size={16} aria-hidden="true" />Showing cached data</span>}
+        </div>
         {children ?? (connection.isPending && !selectedTab ? <p className="page-heading text-muted-foreground" role="status">Loading your connection…</p> : <>
         <TabsContent value="map"><MapView onOpen={() => setTab("execute")} /></TabsContent>
         <TabsContent value="execute"><ExecuteView /></TabsContent>

@@ -1,4 +1,7 @@
 # Connect onboarding
+- [ ] Implement MoodleProvider with cached-row fallback and bounded background sync.
+- [ ] Add shell-only demo toggle and non-blocking cached-data notice; leave views unchanged.
+- [ ] Verify provider selection, failure recovery, and demo switching with tests.
 - [x] Build Get started, progress rail, connection form, token help, and detection placeholder.
 - [x] Open Connect from the top-bar pill and default to it without a saved connection.
 - [x] Verify token clearing, inline failures, and success progression with focused tests (6 passed); check isolated desktop/mobile layout.
