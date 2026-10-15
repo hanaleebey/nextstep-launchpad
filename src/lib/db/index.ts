@@ -148,7 +148,21 @@ export async function listDetectedItems(): Promise<DetectedItem[]> {
   return unwrap(await db.from("detected_items").select("*").order("created_at"));
 }
 export async function addDetectedItems(items: NewDetectedItem[]): Promise<DetectedItem[]> {
+  if (items.length === 0) return [];
   return unwrap(await db.from("detected_items").insert(items).select());
+}
+/** Replace the current detection cache only after the new rows save successfully. */
+export async function replaceDetectedItems(items: NewDetectedItem[]): Promise<DetectedItem[]> {
+  const existing = await listDetectedItems();
+  const saved = await addDetectedItems(items);
+  if (existing.length) unwrap(await db.from("detected_items").delete().in("id", existing.map((item: DetectedItem) => item.id)));
+  return saved;
+}
+export async function updateDetectedItem(
+  id: string,
+  patch: Partial<Pick<DetectedItem, "estimated_minutes" | "confidence" | "confirmed">>,
+): Promise<DetectedItem> {
+  return unwrap(await db.from("detected_items").update(patch).eq("id", id).select().single());
 }
 export async function setDetectedItemConfirmed(id: string, confirmed: boolean): Promise<DetectedItem> {
   return unwrap(await db.from("detected_items").update({ confirmed }).eq("id", id).select().single());
