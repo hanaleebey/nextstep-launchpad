@@ -42,7 +42,7 @@ function ErrorComponent({ error, reset }: ErrorComponentProps) {
   const router = useRouter();
   useEffect(() => {
     // A stale page chunk is fixed by one fresh reload, not an error screen.
-    if (/Failed to fetch dynamically imported module|Importing a module script failed/i.test(String(error?.message)) && !sessionStorage.getItem("ns-chunk-reload")) {
+    if (/Failed to fetch dynamically imported module|Importing a module script failed/i.test(String((error as Error | undefined)?.message)) && !sessionStorage.getItem("ns-chunk-reload")) {
       sessionStorage.setItem("ns-chunk-reload", "1");
       window.location.reload();
       return;
