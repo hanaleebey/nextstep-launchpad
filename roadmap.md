@@ -17,5 +17,5 @@
 - [x] Reset progress and steps when a Moodle due date changes.
 
 # Assignment-specific planning
-- [ ] AI generates every plan from the assignment's own instructions (no template steps); videos become one "Watch" step.
-- [ ] Stop assignments showing more than once (duplicate saved courses/rows from earlier syncs).
+- [x] AI generates every plan from the assignment's own instructions (no template steps); videos become one "Watch" step.
+- [x] Stop assignments showing more than once (duplicate saved courses/rows from earlier syncs).
