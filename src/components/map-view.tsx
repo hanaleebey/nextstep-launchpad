@@ -61,6 +61,35 @@ export function MapView({ onOpen }: { onOpen: () => void }) {
   const { data, isLoading, isError, refetch } = useQuery({ queryKey: ["lms", "map"], queryFn: loadMapData });
   const session = useExecuteSession();
   const [openId, setOpenId] = useState<string | null>(null);
+  const [planning, setPlanning] = useState(false);
+  const [syncing, setSyncing] = useState(false);
+  const qc = useQueryClient();
+
+  // Background Moodle syncs finish after first paint; refetch when they do.
+  useEffect(() => subscribeLmsDataChanged(() => { void qc.invalidateQueries({ queryKey: ["lms"] }); }), [qc]);
+
+  async function planUnplanned(ids?: string[]) {
+    setPlanning(true);
+    try {
+      const types = Object.fromEntries((data?.assignments ?? []).map((a) => [a.lmsAssignmentId, a.itemType]));
+      const r = await decomposeAllUnplanned(types, ids);
+      await qc.invalidateQueries();
+      toast.success(r.assignments ? `Planned ${r.assignments} assignment(s) into ${r.steps} steps.` : "Every assignment already has steps.");
+    } catch (e) {
+      toast.error(`Couldn't plan steps: ${e instanceof Error ? e.message : String(e)}`);
+    } finally { setPlanning(false); }
+  }
+
+  async function syncNow() {
+    setSyncing(true);
+    try {
+      const live = await syncLmsNow();
+      await qc.invalidateQueries();
+      toast.success(live ? "Synced with Moodle." : "Demo data is showing — nothing to sync.");
+    } catch {
+      toast.error("Moodle sync could not finish. Your saved work is unchanged.");
+    } finally { setSyncing(false); }
+  }
 
   if (isLoading) {
     return (
