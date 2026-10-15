@@ -50,3 +50,13 @@ const pendingProvider: LmsProvider = {
 export function getLmsProvider(): LmsProvider {
   return getProviderState().demo ? mock : provider ?? pendingProvider;
 }
+
+/** Force a Moodle sync now. Returns false when no live Moodle connection is active. */
+export async function syncLmsNow(): Promise<boolean> {
+  const p = await resolveProvider();
+  if (!(p instanceof MoodleProvider)) return false;
+  await p.syncNow();
+  return true;
+}
+
+export { subscribeLmsDataChanged } from "./provider-state";

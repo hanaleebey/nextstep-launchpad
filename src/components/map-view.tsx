@@ -1,11 +1,13 @@
 // Map tab: semester overview. Reads LMS data ONLY via getLmsProvider();
 // buffer states and the week timeline come from the deterministic engine.
-import { useState } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useEffect, useState } from "react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { toast } from "sonner";
 import { focusAssignment, useExecuteSession, withOverrides } from "@/lib/session/execute-store";
 import type { LmsStep } from "@/lib/lms";
-import { AlertTriangle, Ban, Check, CheckCircle2, Circle, Square, X, CircleAlert, Inbox, Loader2, RefreshCw, type LucideIcon } from "lucide-react";
-import { getLmsProvider, type Assignment, type Course } from "@/lib/lms";
+import { AlertTriangle, Ban, Check, CheckCircle2, Circle, ListChecks, Square, X, CircleAlert, Inbox, Loader2, RefreshCw, type LucideIcon } from "lucide-react";
+import { getLmsProvider, subscribeLmsDataChanged, syncLmsNow, type Assignment, type Course } from "@/lib/lms";
+import { decomposeAllUnplanned } from "@/lib/agent/decompose-persist";
 import { BUFFER_LABEL, bufferStateFor, computeSlack, daysUntil, remainingMinutes } from "@/lib/engine/buffer";
 import { scheduleWeek, type SchedulableStep } from "@/lib/engine/schedule";
 import type { BufferState } from "@/types/nextstep";
