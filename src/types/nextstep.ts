@@ -94,6 +94,8 @@ export interface ActivityLogEntry {
 export interface DetectedItem {
   id: string;
   user_id: string;
+  assignment_id: string | null;
+  estimated_is_manual: boolean;
   item_type: DetectedItemType;
   title: string;
   source_course: string | null;
@@ -123,6 +125,6 @@ export type NewAssignment = Omit<Assignment, Auto | "status" | "actual_minutes" 
 export type NewStep = Omit<Step, "id" | "created_at" | "updated_at" | "status" | "scheduled_date"> & { status?: StepStatus; scheduled_date?: string | null };
 export type NewEstimateEvent = Omit<EstimateEvent, "id" | "created_at" | "calibration_used" | "excluded_reason" | "ai_refined"> &
   Partial<Pick<EstimateEvent, "calibration_used" | "excluded_reason" | "ai_refined">>; // optional — DB defaults fill them
-export type NewDetectedItem = Omit<DetectedItem, Auto | "confirmed"> & { confirmed?: boolean };
+export type NewDetectedItem = Omit<DetectedItem, Auto | "confirmed" | "estimated_is_manual" | "assignment_id"> & Partial<Pick<DetectedItem, "confirmed" | "estimated_is_manual" | "assignment_id">>;
 export type NewLmsConnection = Omit<LmsConnection, Auto | "connected_at">;
 export type NewWeeklyAllocation = Omit<WeeklyAllocation, Auto>;

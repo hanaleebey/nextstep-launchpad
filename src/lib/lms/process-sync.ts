@@ -1,5 +1,5 @@
 import {
-  addDetectedItems, listAssignments, listCourses, logActivity, replaceDetectedItems,
+  listDetectedItems, listAssignments, listCourses, logActivity, replaceDetectedItems,
   updateAssignment,
 } from "@/lib/db";
 import { inferDueDates } from "@/lib/agent/infer-due";
@@ -11,9 +11,9 @@ import type { MoodleSyncItem, MoodleSyncResult } from "./moodle-sync";
 
 function inputFor(item: MoodleSyncItem): EstimateInput {
   if (item.itemType === "video") return { kind: "video", signals: { durationSeconds: item.videoDurationSeconds } };
-  if (item.itemType === "read") return { kind: "read", signals: { wordCount: item.wordCount } };
-  if (item.itemType === "quiz") return { kind: "quiz", signals: { timeLimitSeconds: item.quizTimeLimitSeconds, questionCount: item.questionCount } };
-  if (item.itemType === "paper") return { kind: "writing", signals: { targetWords: item.targetWords, hasRubric: Boolean(item.rubric?.length) } };
+  if (item.itemType === "read") return { kind: "read", signals: { wordCount: item.wordCount ?? null } };
+  if (item.itemType === "quiz") return { kind: "quiz", signals: { timeLimitSeconds: item.quizTimeLimitSeconds, questionCount: item.questionCount ?? null } };
+  if (item.itemType === "paper") return { kind: "writing", signals: { targetWords: item.targetWords ?? null, hasRubric: Boolean(item.rubric?.length) } };
   return { kind: "other" };
 }
 
@@ -40,10 +40,11 @@ export async function processMoodleSync(sync: MoodleSyncResult, timezone: string
   const assignmentByCmid = new Map(assignments.map((a) => [a.lms_assignment_id, a]));
   const courseName = new Map(courses.map((c) => [c.lms_course_id, c.name]));
   const preliminary = sync.items.map((item) => ({ item, base: estimate(inputFor(item)) }));
-  const dueDates = inferDueDates(preliminary.map(({ item, base }) => ({
+  const courseIds = [...new Set(sync.items.map((item) => item.lmsCourseId))];
+  const dueDates = courseIds.flatMap((id) => inferDueDates(preliminary.filter(({ item }) => item.lmsCourseId === id).map(({ item, base }) => ({
     id: item.cmid, section: item.sectionIndex, position: item.moduleIndex,
-    dueAt: item.dueAt, estimatedMinutes: base.minutes,
-  })));
+    dueAt: item.dueAt, estimatedMinutes: assignmentByCmid.get(item.cmid)?.estimated_is_manual ? assignmentByCmid.get(item.cmid)?.estimated_minutes : base.minutes,
+  }))));
   const dueById = new Map(dueDates.map((d) => [d.id, d.dueAt]));
   const { start, end } = weekInTimezone(new Date(), timezone);
   const rows: NewDetectedItem[] = [];
@@ -55,19 +56,25 @@ export async function processMoodleSync(sync: MoodleSyncResult, timezone: string
     if (dueAt && assignment.due_at !== dueAt) await updateAssignment(assignment.id, { due_at: dueAt });
     if (!dueAt || new Date(dueAt) < start || new Date(dueAt) >= end) continue;
     const refined = await estimateRefineAndPersist(assignment.id, item.itemType, base, {
-      title: item.title, type: item.itemType, introHtml: item.introHtml, rubric: item.rubric,
+      title: item.title, type: item.itemType, introHtml: item.introHtml ?? null, rubric: item.rubric ?? [],
     });
     rows.push({
+      assignment_id: assignment.id,
+      estimated_is_manual: assignment.estimated_is_manual,
       item_type: item.itemType,
       title: item.title,
       source_course: courseName.get(item.lmsCourseId) ?? null,
       signal_value: signalLabel(item, refined.signals),
-      estimated_minutes: refined.minutes,
+      estimated_minutes: assignment.estimated_is_manual ? assignment.estimated_minutes : refined.minutes,
       confidence: refined.confidence,
     });
   }
 
-  const saved = await replaceDetectedItems(rows);
+  // Preserve cached items from unreachable courses on partial sync.
+  const existing = sync.partial ? await listDetectedItems() : [];
+  const touched = new Set(rows.map((row) => row.assignment_id));
+  const retained = existing.filter((row) => !touched.has(row.assignment_id)).map(({ id, user_id, created_at, updated_at, ...row }) => row);
+  const saved = await replaceDetectedItems([...rows, ...retained]);
   await logActivity("sync", `Synced ${sync.summary.courses} courses and detected ${saved.length} items for this week${sync.partial ? " (partial sync)" : ""}.`);
   return saved;
 }

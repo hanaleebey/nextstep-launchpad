@@ -160,7 +160,7 @@ export async function replaceDetectedItems(items: NewDetectedItem[]): Promise<De
 }
 export async function updateDetectedItem(
   id: string,
-  patch: Partial<Pick<DetectedItem, "estimated_minutes" | "confidence" | "confirmed">>,
+  patch: Partial<Pick<DetectedItem, "estimated_minutes" | "estimated_is_manual" | "confidence" | "confirmed">>,
 ): Promise<DetectedItem> {
   return unwrap(await db.from("detected_items").update(patch).eq("id", id).select().single());
 }
