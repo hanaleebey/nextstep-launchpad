@@ -13,7 +13,7 @@ describe("video", () => {
     expect(estimateVideo({ durationSeconds: 600, oembedTitle: "Lecture 3" }).confidence).toBe("high");
   });
   it("falls back without duration", () => {
-    expect(estimateVideo({}).minutes).toBe(FALLBACK_MINUTES);
+    expect(estimateVideo({})).toMatchObject({ minutes: 20, confidence: "low" });
   });
 });
 
