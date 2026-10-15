@@ -83,21 +83,24 @@ export function MapView({ onOpen }: { onOpen: () => void }) {
 
   const courseCode = new Map(data.courses.map((c) => [c.lmsCourseId, c.code]));
 
-  // Derive per-row values once, then sort by urgency (least slack first).
+  // Derive per-row values once (with this session's step updates applied),
+  // then sort by urgency (least slack first).
   const rows = data.assignments
     .map((a) => {
+      const steps = withOverrides(a.lmsAssignmentId, a.steps ?? [], session.overrides);
+      const doneSteps = steps.filter((s) => s.status !== "todo").length;
+      const progress = steps.length ? Math.round((doneSteps / steps.length) * 100) : a.progressPct;
       const days = daysUntil(a.dueAt);
-      const remaining = remainingMinutes(a.estimatedMinutes, a.progressPct);
+      const remaining = remainingMinutes(a.estimatedMinutes, progress);
       const slack = computeSlack(days, remaining);
-      const steps = a.steps ?? [];
       return {
-        a, days, remaining, slack,
-        state: a.bufferState ?? bufferStateFor(slack),
-        doneSteps: steps.filter((s) => s.status === "done").length,
+        a, days, remaining, slack, steps, progress, doneSteps,
+        state: bufferStateFor(slack),
         totalSteps: steps.length,
       };
     })
     .sort((x, y) => x.slack - y.slack);
+  const openRow = rows.find((r) => r.a.lmsAssignmentId === openId) ?? null;
 
   const upcoming = rows.filter((r) => r.days !== null && r.days >= 0);
   const atRisk = rows.filter((r) => r.state !== "green").length;
