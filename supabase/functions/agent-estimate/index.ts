@@ -85,7 +85,8 @@ function validate(raw: unknown): Estimate | null {
   const confidence = o.confidence;
   if (confidence !== "high" && confidence !== "medium" && confidence !== "low") return null;
 
-  if (!Array.isArray(o.steps) || o.steps.length < 4 || o.steps.length > 8) return null;
+  // 1 step is valid: a plain video is just "Watch ...".
+  if (!Array.isArray(o.steps) || o.steps.length < 1 || o.steps.length > 8) return null;
 
   const steps: Step[] = [];
   for (const item of o.steps) {
@@ -99,7 +100,7 @@ function validate(raw: unknown): Estimate | null {
     if (!Number.isFinite(timebox)) return null;
 
     const rawCriteria = s.done_criteria;
-    if (!Array.isArray(rawCriteria) || rawCriteria.length < 1 || rawCriteria.length > 3) {
+    if (!Array.isArray(rawCriteria) || rawCriteria.length < 1 || rawCriteria.length > 4) {
       return null;
     }
     const criteria = rawCriteria
@@ -109,7 +110,8 @@ function validate(raw: unknown): Estimate | null {
 
     steps.push({
       title: title.slice(0, 140),
-      timebox_minutes: Math.min(50, Math.max(15, Math.round(timebox))),
+      // Exact minutes (a 4-minute video stays 4), capped at 50 per step.
+      timebox_minutes: Math.min(50, Math.max(1, Math.round(timebox))),
       done_criteria: criteria,
     });
   }
@@ -123,11 +125,19 @@ You turn one assignment into small, concrete, timeboxed steps. Your job is to re
 need for the student to decide what to do next.
 
 Rules:
-- Return 4 to 8 steps.
-- Each step has a short imperative title in plain language, with no jargon.
-- Each step has timebox_minutes, an integer from 15 to 50.
-- Each step has done_criteria: 1 to 3 short, checkable statements defining "good enough" -
-  the point at which the student is allowed to stop.
+- Base every step on THIS assignment's own title and details. Never use generic template steps.
+- Use as few steps as the work needs: 1 to 8. Do not pad.
+- Video: one step "Watch <title>" with the video's length as the timebox, unless the details
+  ask for more (e.g. answer questions, take notes, post a reflection) - then add only those.
+- Reading: split by the real structure in the details, e.g. "Read sections 1-2" or
+  "Read pages 1-3 and take notes". If no structure is given, split into equal named parts.
+- Quiz: name the topics it covers when known; the last step is taking the quiz.
+- Writing/projects/discussions: steps follow the actual instructions, in order.
+- Each step has timebox_minutes, an integer from 1 to 50 (short tasks keep their exact length).
+- Each step has done_criteria: 1 to 4 short, checkable statements defining "good enough".
+- Across the plan, criteria must cover every instruction or required element in the details
+  (e.g. "Thesis states your position on X", "Includes 2 cited sources", "300+ words").
+  Put each requirement on the step where it is done - not on every step.
 - Every step must be startable without further decisions.
 - The timeboxes must sum to roughly the assignment's total estimated time.
 - Avoid vague verbs like "review" or "work on". Name the concrete action.
