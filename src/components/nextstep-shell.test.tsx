@@ -45,7 +45,7 @@ describe("NextStepShell", () => {
 
   it("switches to demo Map and back to the saved source", async () => {
     mount(<NextStepShell email="student@example.edu" />);
-    await screen.findByRole("heading", { name: "Connect" });
+    await screen.findByRole("heading", { name: /connect/i });
     fireEvent.click(screen.getByRole("switch", { name: "Use demo data" }));
     await screen.findByRole("heading", { name: "Semester map" });
     expect(screen.getByRole("switch", { name: "Use demo data" })).toBeChecked();
@@ -67,7 +67,11 @@ describe("NextStepShell", () => {
   });
 
   it("opens Connect from the connection pill while on a standalone page", async () => {
-    mount(<NextStepShell email="student@example.edu"><h1>Settings</h1></NextStepShell>);
+    mount(
+      <NextStepShell email="student@example.edu">
+        <h1>Settings</h1>
+      </NextStepShell>,
+    );
     fireEvent.click(screen.getByRole("button", { name: "Open LMS connection" }));
     await waitFor(() => expect(mocks.navigate).toHaveBeenCalledWith({ to: "/", search: { tab: "connect" } }));
   });
