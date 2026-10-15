@@ -13,7 +13,7 @@
 //   3. Split the estimated total across those steps by each step's weight,
 //      round to 5 minutes, and clamp each one to 15–50 minutes.
 
-export type DecomposeType = "paper" | "quiz" | "reading" | "discussion" | "project";
+export type DecomposeType = "paper" | "quiz" | "reading" | "discussion" | "project" | "video";
 
 export interface DecomposeInput {
   title: string;
@@ -91,6 +91,14 @@ const TEMPLATES: Record<DecomposeType, TemplateStep[]> = {
     { title: "Reply to the first classmate", weight: 0.6, priority: 6, done: ["Reply of two or more sentences posted"] },
     { title: "Reply to the second classmate", weight: 0.6, priority: 7, done: ["Second reply posted"] },
   ],
+  video: [
+    { title: "Open the video and note its length", weight: 0.3, priority: 1, done: ["Video open", "Length noted"] },
+    { title: "Watch the first half and pause to note key terms", weight: 1, priority: 2, done: ["First half watched", "Two key terms written"] },
+    { title: "Watch the second half and note one example", weight: 1, priority: 3, done: ["Video finished", "One example written"] },
+    { title: "Write three takeaways in your own words", weight: 0.6, priority: 1, done: ["Three takeaways written"] },
+    { title: "Write one question the video left open", weight: 0.3, priority: 5, done: ["One question written"] },
+    { title: "Rewatch the part you understood least", weight: 0.6, priority: 6, done: ["Tricky part rewatched", "Note updated"] },
+  ],
   project: [
     { title: "Read the project brief and list what you must hand in", weight: 0.8, priority: 1, done: ["Deliverables listed"] },
     { title: "Set up your files and folder", weight: 0.5, priority: 4, done: ["Folder created", "Starter files open"] },
@@ -108,7 +116,8 @@ export function normaliseType(type: string): DecomposeType {
   const t = type.toLowerCase();
   if (["paper", "essay", "writing", "report"].includes(t)) return "paper";
   if (["quiz", "exam", "test"].includes(t)) return "quiz";
-  if (["reading", "read", "video", "chapter"].includes(t)) return "reading";
+  if (["video", "lecture"].includes(t)) return "video";
+  if (["reading", "read", "chapter", "page", "url", "resource", "book"].includes(t)) return "reading";
   if (["discussion", "post", "forum"].includes(t)) return "discussion";
   return "project"; // open-ended default
 }
@@ -155,6 +164,52 @@ export function splitByWeight(total: number, weights: number[]): number[] {
   return result.map((m) => clampTimebox(m ?? MIN_TIMEBOX));
 }
 
+/** Bounded work (has a hard length) can be shorter than the usual 4×15 min plan. */
+const BOUNDED: DecomposeType[] = ["video", "quiz", "reading", "discussion"];
+export const SHORT_TASK_LIMIT = 60;
+
+/**
+ * Make generic template text specific to THIS assignment by naming it.
+ * e.g. "Open the video and note its length" -> "Open "Classical Conditioning" and note its length".
+ */
+export function personalise(text: string, title: string): string {
+  const t = `"${title.trim()}"`;
+  const rules: [RegExp, string][] = [
+    [/\bthe discussion prompt\b/i, `the ${t} prompt`],
+    [/\bthe project brief\b/i, `the ${t} brief`],
+    [/\bthe quiz page\b/i, `the ${t} quiz page`],
+    [/\bthe quiz\b/i, t],
+    [/\bthe prompt\b/i, `the ${t} prompt`],
+    [/\bthe reading\b/i, t],
+    [/\bthe video\b/i, t],
+    [/^Package and submit$/i, `Package and submit ${t}`],
+    [/^Check format and submit$/i, `Check format and submit ${t}`],
+    [/^Post your answer$/i, `Post your answer to ${t}`],
+  ];
+  for (const [re, rep] of rules) if (re.test(text)) return text.replace(re, rep);
+  return text;
+}
+
+/** Short bounded task: 1–3 steps whose minutes add up EXACTLY to the hard estimate. */
+function decomposeShort(input: DecomposeInput, type: DecomposeType, total: number): DecomposedStep[] {
+  const count = total <= 10 ? 1 : total <= 30 ? 2 : 3;
+  const title = input.title.trim();
+  const first: Record<string, [string, string[]]> = {
+    video: [`Watch "${title}" start to finish`, ["Video watched to the end", "Two key terms noted"]],
+    quiz: [`Take "${title}"`, ["Every question answered", "Submitted"]],
+    reading: [`Read "${title}"`, ["Reading finished", "One note written"]],
+    discussion: [`Write and post your answer to "${title}"`, ["Answer posted"]],
+  };
+  const [mainTitle, mainDone] = first[type] ?? first.reading!;
+  const plan: [string, string[], number][] = [[mainTitle, mainDone, 1]];
+  if (count >= 2) plan.push([`Write three takeaways from "${title}" in your own words`, ["Three takeaways written"], 0.35]);
+  if (count >= 3) plan.push(["Write one question you still have", ["One question written"], 0.15]);
+  const wSum = plan.reduce((s, p) => s + p[2], 0);
+  const mins = plan.map((p) => Math.max(1, Math.round((total * p[2]) / wSum)));
+  mins[0] = Math.max(1, total - mins.slice(1).reduce((s, m) => s + m, 0)); // exact total
+  return plan.map(([t, done], i) => ({ order_index: i, title: t, timebox_minutes: mins[i]!, done_criteria: [...done] }));
+}
+
 /**
  * Produce ordered, timeboxed steps for an assignment.
  * Note: very small totals (< 60 min) or very large ones (> 400 min) can't hit
@@ -162,7 +217,9 @@ export function splitByWeight(total: number, weights: number[]): number[] {
  */
 export function decompose(input: DecomposeInput): DecomposedStep[] {
   const total = input.estimatedMinutes && input.estimatedMinutes > 0 ? input.estimatedMinutes : DEFAULT_TOTAL_MINUTES;
-  const template = TEMPLATES[normaliseType(input.type)];
+  const type = normaliseType(input.type);
+  if (BOUNDED.includes(type) && total < SHORT_TASK_LIMIT) return decomposeShort(input, type, Math.round(total));
+  const template = TEMPLATES[type];
   const count = stepCountFor(total);
 
   // Keep the `count` most essential steps, then restore template order.
@@ -176,8 +233,8 @@ export function decompose(input: DecomposeInput): DecomposedStep[] {
   const minutes = splitByWeight(total, kept.map((k) => k.weight));
   return kept.map((step, idx) => ({
     order_index: idx,
-    title: step.title,
+    title: personalise(step.title, input.title),
     timebox_minutes: minutes[idx] ?? MIN_TIMEBOX,
-    done_criteria: [...step.done],
+    done_criteria: step.done.map((d) => personalise(d, input.title)),
   }));
 }

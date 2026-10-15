@@ -51,13 +51,34 @@ function usable(n: number | null | undefined): n is number {
 export interface VideoSignals {
   durationSeconds?: number | null; // from YouTube metadata
   oembedTitle?: string | null; // oEmbed response confirms the video exists
+  /** Title/description text; used to find a stated length like "4 min" or "4:12". */
+  text?: string | null;
 }
+
+/** Find a stated length in text: "4:12", "1:02:30", "4 min", "12 minutes", "90 sec". Returns seconds. */
+export function parseDurationFromText(text: string | null | undefined): number | null {
+  if (!text) return null;
+  const clock = /\b(?:(\d{1,2}):)?(\d{1,2}):(\d{2})\b/.exec(text);
+  if (clock) return Number(clock[1] ?? 0) * 3600 + Number(clock[2]) * 60 + Number(clock[3]);
+  const min = /(\d+(?:\.\d+)?)\s*(?:m|min|mins|minutes?)\b/i.exec(text);
+  if (min) return Math.round(Number(min[1]) * 60);
+  const sec = /(\d+)\s*(?:s|sec|secs|seconds?)\b/i.exec(text);
+  if (sec) return Number(sec[1]);
+  return null;
+}
+
 export function estimateVideo(s: VideoSignals): EstimateResult {
+  if (!usable(s.durationSeconds)) {
+    const stated = parseDurationFromText(s.text);
+    if (usable(stated)) {
+      return { minutes: Math.max(1, Math.round(stated / 60)), confidence: "medium", signals: [`stated length: ${stated}s`] };
+    }
+  }
   if (!usable(s.durationSeconds)) return { minutes: 20, confidence: "low", signals: ["fallback: video duration unknown"] };
   const signals = [`video duration: ${Math.round(s.durationSeconds)}s`];
   if (s.oembedTitle) signals.push(`oEmbed title: ${s.oembedTitle}`);
   return {
-    minutes: Math.ceil((s.durationSeconds / 60) * 1.0),
+    minutes: Math.max(1, Math.round(s.durationSeconds / 60)), // nearest minute, no floor
     confidence: confidenceFromSignals(signals.length),
     signals,
   };
