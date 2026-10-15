@@ -183,6 +183,8 @@
 .shell-account { margin-left: auto; display: flex; align-items: center; gap: 14px; flex-shrink: 0; }
 .connection-status { display: inline-flex; align-items: center; gap: 7px; padding: 6px 11px; border: 1px solid var(--border); border-radius: 999px; background: var(--bg); color: var(--muted); font-size: 12px; font-weight: 600; white-space: nowrap; }
 .status-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--muted); }
+.connection-status.is-connected { color: var(--green); background: var(--green-bg); }
+.shell-email { max-width: 150px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .user-avatar { display: grid; place-items: center; width: 34px; height: 34px; border-radius: 50%; background: var(--avatar-bg); color: var(--muted); }
 .shell-container { max-width: 1240px; padding: 0 24px 64px; margin: 0 auto; }
 .shell-container [role="tabpanel"] { margin-top: 0; }
@@ -194,7 +196,8 @@
 .placeholder-content h2 { margin: 0; font-size: 16px; font-weight: 650; }
 .placeholder-content p { margin: 7px 0 0; font-size: 13px; color: var(--muted); }
 @media (max-width: 1150px) and (min-width: 1000px) {
-  .shell-topbar { gap: 16px; padding-inline: 20px; }
+  .shell-topbar { gap: 12px; padding-inline: 20px; }
+  .shell-email { display: none; }
   .shell-navigation [role="tab"] { padding-inline: 9px; }
   .shell-navigation [role="tab"] svg { display: none; }
   .shell-account { gap: 10px; }
@@ -209,6 +212,7 @@
 @media (max-width: 540px) {
   .shell-topbar { padding: 16px; gap: 16px; }
   .shell-account { gap: 8px; }
+  .shell-email { display: none; }
   .connection-status { padding: 5px 8px; font-size: 10px; }
   .brand-subtitle { font-size: 10px; }
   .shell-navigation { gap: 2px; }
@@ -221,6 +225,53 @@
   .shell-topbar { grid-template-columns: 1fr; }
   .shell-account { grid-column: 1; grid-row: 2; margin-left: 0; }
   .shell-navigation { grid-row: 3; }
+}
+
+/* ---------- Connect onboarding ---------- */
+.connect-heading p { margin-top: 8px; color: var(--muted); font-size: 15px; }
+.connect-progress { display: flex; list-style: none; padding: 0; margin: 28px 0 30px; gap: 24px; }
+.connect-progress-step { display: flex; align-items: center; gap: 12px; flex: 1; min-width: 0; color: var(--muted); }
+.connect-step-circle { display: grid; place-items: center; flex-shrink: 0; width: 38px; height: 38px; border: 1px solid var(--border); border-radius: 50%; background: var(--surface); font-weight: 650; }
+.connect-progress-step.active { color: var(--green); }
+.connect-progress-step.active .connect-step-circle { background: var(--green-bg); border-color: var(--green); }
+.connect-progress-step.completed .connect-step-circle { background: var(--green); border-color: var(--green); color: var(--surface); }
+.connect-progress-step.completed { color: var(--ink); }
+.connect-step-label { font-size: 14px; font-weight: 600; }
+.connect-step-arrow { margin-left: auto; flex-shrink: 0; color: var(--faint); }
+.connect-grid { display: grid; grid-template-columns: minmax(0, 1.15fr) minmax(0, 1fr); gap: 24px; align-items: stretch; }
+.connect-card { min-width: 0; padding: 28px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface); box-shadow: var(--panel-shadow); }
+.connect-card-heading { display: flex; align-items: center; gap: 10px; margin-bottom: 26px; }
+.connect-card-heading > svg { color: var(--muted); }
+.connect-card-heading h2 { font-size: 18px; font-weight: 650; }
+.connect-form { display: grid; gap: 20px; }
+.connect-form input { height: 44px; background: var(--surface); }
+.connect-token-field { position: relative; }
+.connect-token-field input { padding-right: 48px; }
+.connect-token-toggle { position: absolute; right: 4px; top: 4px; color: var(--muted); }
+.connect-helper { display: flex; gap: 7px; align-items: flex-start; font-size: 12px; line-height: 1.6; color: var(--muted); margin-top: -8px; }
+.connect-helper svg, .connect-readonly svg, .connect-feedback svg { flex-shrink: 0; margin-top: 2px; }
+.connect-submit { width: 100%; height: 44px; }
+.connect-readonly { display: flex; align-items: flex-start; gap: 8px; color: var(--muted); font-size: 13px; line-height: 1.6; margin-top: 18px; }
+.connect-feedback { display: flex; align-items: flex-start; gap: 8px; font-size: 14px; overflow-wrap: anywhere; }
+.connect-success { color: var(--green); }
+.connect-token-help { margin-top: 24px; border-top: 1px solid var(--border); padding-top: 18px; font-size: 13px; }
+.connect-token-help summary { display: flex; justify-content: space-between; align-items: center; cursor: pointer; font-weight: 600; gap: 8px; }
+.connect-token-help summary:focus-visible { outline: 2px solid var(--primary); outline-offset: 4px; }
+.connect-token-help[open] summary svg { transform: rotate(180deg); }
+.connect-token-help p { color: var(--muted); margin-top: 16px; }
+.connect-token-help ol { list-style: decimal; padding-left: 20px; margin-top: 10px; color: var(--muted); display: grid; gap: 10px; line-height: 1.6; }
+.connect-detect { display: flex; flex-direction: column; background: var(--surface-2); }
+.connect-detect-placeholder { display: flex; flex: 1; min-height: 230px; align-items: center; justify-content: center; flex-direction: column; gap: 14px; color: var(--muted); font-size: 14px; }
+.connect-detect-placeholder > svg { color: var(--faint); }
+.connect-existing-plan { margin-top: 32px; }
+@media (max-width: 700px) {
+  .connect-grid { grid-template-columns: minmax(0, 1fr); gap: 18px; }
+  .connect-card { padding: 22px; }
+  .connect-progress { gap: 10px; }
+  .connect-progress-step { flex-direction: column; gap: 8px; align-items: flex-start; }
+  .connect-step-label { font-size: 12px; }
+  .connect-step-arrow { display: none; }
+  .connect-detect-placeholder { min-height: 140px; }
 }
 
 /* ---------- Map tab ---------- */

@@ -1,6 +1,8 @@
-import { Cable, Clock3, LogOut, Map, Play, Settings, UserRound } from "lucide-react";
+import { Cable, CheckCircle2, Clock3, LogOut, Map, Play, Settings, UserRound } from "lucide-react";
 import { useNavigate } from "@tanstack/react-router";
-import { useQueryClient } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { Button } from "@/components/ui/button";
+import { getLmsConnection } from "@/lib/db";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { MoodleConnectPanel } from "@/components/moodle-connect-panel";
 import { AiPlanPanel } from "@/components/ai-plan-panel";
@@ -16,7 +18,10 @@ import { supabase } from "@/integrations/supabase/client";
 export function NextStepShell({ email, initialTab = "map", children }: { email: string; initialTab?: string | undefined; children?: ReactNode }) {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
-  const [tab, setTab] = useState(children ? "settings" : initialTab ?? "map");
+  const connection = useQuery({ queryKey: ["lms-connection"], queryFn: getLmsConnection });
+  const [selectedTab, setTab] = useState<string | undefined>(children ? "settings" : initialTab);
+  // A saved connection is the first-run marker. Explicit tab choices always win.
+  const tab = selectedTab ?? (connection.data === null ? "connect" : "map");
   function changeTab(value: string) {
     if (value === "settings") navigate({ to: "/settings" });
     else if (children) navigate({ to: "/", search: { tab: value } });
@@ -43,18 +48,21 @@ export function NextStepShell({ email, initialTab = "map", children }: { email: 
           <TabsTrigger value="settings"><Settings aria-hidden="true" />Settings</TabsTrigger>
         </TabsList>
         <div className="shell-account">
-          <span className="connection-status"><span className="status-dot" aria-hidden="true" />Not connected</span>
-          <span className="text-sm text-muted-foreground" title={email}>{email}</span>
+          <Button type="button" variant="ghost" onClick={() => changeTab("connect")} className={`connection-status ${connection.data?.site_url ? "is-connected" : ""}`} aria-label="Open LMS connection">
+            {connection.data?.site_url ? <CheckCircle2 aria-hidden="true" /> : <Cable aria-hidden="true" />}
+            {connection.isPending ? "Checking…" : connection.data?.site_url ? "Connected" : "Not connected"}
+          </Button>
+          <span className="shell-email text-sm text-muted-foreground" title={email}>{email}</span>
           <div className="user-avatar" role="img" aria-label={`Signed in as ${email}`}><UserRound size={17} strokeWidth={1.8} aria-hidden="true" /></div>
-          <button type="button" onClick={signOut} aria-label="Sign out" className="rounded-full p-2 text-muted-foreground hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring"><LogOut size={17} aria-hidden="true" /></button>
+          <Button type="button" variant="ghost" size="icon" onClick={signOut} aria-label="Sign out" title="Sign out" className="rounded-full text-muted-foreground"><LogOut size={17} aria-hidden="true" /></Button>
         </div>
       </header>
       <main className="shell-container">
-        {children ?? (<>
+        {children ?? (connection.isPending && !selectedTab ? <p className="page-heading text-muted-foreground" role="status">Loading your connection…</p> : <>
         <TabsContent value="map"><MapView onOpen={() => setTab("execute")} /></TabsContent>
         <TabsContent value="execute"><ExecuteView /></TabsContent>
         <TabsContent value="behind"><BehindView /></TabsContent>
-        <TabsContent value="connect"><div className="page-heading"><h1>Connect</h1></div><MoodleConnectPanel /><AiPlanPanel /></TabsContent>
+        <TabsContent value="connect"><MoodleConnectPanel /><div className="connect-existing-plan"><AiPlanPanel /></div></TabsContent>
                 </>)}
       </main>
     </Tabs>

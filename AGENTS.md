@@ -13,6 +13,7 @@
 - Keep the NextStep shell and placeholder panels in `src/components/`, with the index route composing the shell; this separates presentation from routing.
 - Shell tabs are design-system Tabs with a single local `tab` state in the shell (so views like Map can jump to Execute); views fetch their own data via the LMS/db layers.
 - Define visual styling and semantic tokens in `src/styles.css`; shared tokens keep the shell consistent.
+- The shell uses the shared LMS-connection query to choose Connect on first run unless a tab was explicitly selected; the connection pill opens that same view so onboarding has one entry point.
 
 ## Data layer
 - Domain types live in `src/types/`; all database reads/writes go through `src/lib/db/` so views never query tables directly.
