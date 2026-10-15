@@ -15,7 +15,7 @@ import { supabase } from "@/integrations/supabase/client";
 // The shell hosts the tab views on "/" and, when `children` is given, a
 // standalone page (e.g. /settings) in the same frame. Settings is a real route,
 // so its nav item navigates instead of switching a tab.
-export function NextStepShell({ email, initialTab = "map", children }: { email: string; initialTab?: string | undefined; children?: ReactNode }) {
+export function NextStepShell({ email, initialTab, children }: { email: string; initialTab?: string | undefined; children?: ReactNode }) {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const connection = useQuery({ queryKey: ["lms-connection"], queryFn: getLmsConnection });
