@@ -16,6 +16,17 @@ export default defineConfig({
     // Pre-bundle sonner at startup. When Vite discovered it mid-session it
     // re-optimized deps and the page briefly loaded two React copies
     // ("Cannot read properties of null (reading 'useState')").
-    optimizeDeps: { include: ["sonner"] },
+    optimizeDeps: {
+      include: [
+        "react",
+        "react-dom",
+        "react-dom/client",
+        "sonner",
+        "@radix-ui/react-switch",
+        "@radix-ui/react-tabs",
+        "@radix-ui/react-label",
+        "@radix-ui/react-slot",
+      ],
+    },
   },
 });
