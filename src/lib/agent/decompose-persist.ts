@@ -33,6 +33,9 @@ export interface PlanInfo { type?: string; estimatedMinutes?: number | null; des
 
 const AI_TIMEOUT_MS = 20_000;
 
+/** The real reason the last AI planning attempt failed (shown in the UI). */
+export let lastAiError: string | null = null;
+
 /**
  * Steps tailored to THIS assignment, written by the agent from its title,
  * type and Moodle description. No generic templates are ever saved:
@@ -50,10 +53,16 @@ export async function tailoredSteps(input: DecomposeInput, description?: string)
   const timeout = new Promise<null>((r) => setTimeout(() => r(null), AI_TIMEOUT_MS));
   const ai = await Promise.race([
     planAssignment({ title: input.title, type: input.type, due_at: input.dueAt,
-      description: details || undefined, estimated_minutes: input.estimatedMinutes }).catch(() => null),
+      description: details || undefined, estimated_minutes: input.estimatedMinutes }).catch((e) => {
+      lastAiError = e instanceof Error ? e.message : "AI unavailable";
+      return null;
+    }),
     timeout,
   ]);
-  return ai && ai.source === "ai" && ai.steps.length ? ai.steps : null;
+  if (ai && ai.source === "ai" && ai.steps.length) { lastAiError = null; return ai.steps; }
+  // Keep the server's exact message (or a timeout note) so the UI can show it.
+  lastAiError = ai === null ? "The AI planner took too long to answer." : (ai.note ?? "AI unavailable");
+  return null;
 }
 
 /** Rebuild the not-started steps of one assignment (finished steps are kept). */
@@ -62,7 +71,7 @@ export async function regenerateSteps(assignmentId: string, info: PlanInfo = {})
   if (!a) throw new Error("Assignment not found.");
   const input = { title: a.title, type: info.type ?? "paper", estimatedMinutes: info.estimatedMinutes ?? a.estimated_minutes, dueAt: a.due_at };
   const planned = await tailoredSteps(input, info.description);
-  if (!planned) throw new Error("The AI planner is unavailable right now. Nothing was changed — try again shortly.");
+  if (!planned) throw new Error(`The AI planner is unavailable right now (${lastAiError ?? "unknown reason"}). Nothing was changed — try again shortly.`);
   const steps = await persistDecomposition(a.id, input, planned);
   await recomputeBufferStates();
   await logActivity("estimate", `Rebuilt steps for "${a.title}".`);

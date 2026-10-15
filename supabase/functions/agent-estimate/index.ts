@@ -13,7 +13,9 @@
 //   Failure : { error: { code, message } }
 //
 // Secrets (set with `supabase secrets set ...`):
-//   MODEL_API_KEY   required - your Google AI Studio (Gemini) key, starts with "AIza"
+//   MODEL_API_KEY   required - your Google AI Studio (Gemini) key. Both key
+//                   formats work: legacy keys start with "AIza", newer Auth
+//                   Keys start with "AQ." (sent as a Bearer token instead).
 //   MODEL_NAME      optional, default gemini-2.5-flash
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.4";
@@ -214,11 +216,22 @@ Deno.serve(async (req: Request): Promise<Response> => {
   const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`;
 
   // --- call Gemini ---------------------------------------------------------
+  // Google AI Studio issues two key formats:
+  //   "AIza..." legacy API keys  -> sent as the x-goog-api-key header
+  //   "AQ...."   newer Auth Keys -> sent as an OAuth-style Bearer token
+  // Picking the wrong one makes Google reject every call, so detect by prefix.
+  const authHeaders: Record<string, string> = { "Content-Type": "application/json" };
+  if (apiKey.startsWith("AQ.")) {
+    authHeaders["Authorization"] = `Bearer ${apiKey}`;
+  } else {
+    authHeaders["x-goog-api-key"] = apiKey;
+  }
+
   let raw: string;
   try {
     const res = await fetch(url, {
       method: "POST",
-      headers: { "Content-Type": "application/json", "x-goog-api-key": apiKey },
+      headers: authHeaders,
       body: JSON.stringify({
         systemInstruction: { parts: [{ text: SYSTEM_PROMPT }] },
         contents: [{
