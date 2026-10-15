@@ -302,9 +302,10 @@ Deno.serve(async (req) => {
     if (!course_id) continue;
     const row = { lms_assignment_id: i.cmid, course_id, title: i.title, due_at: i.dueAt };
     const known = assignRowId.get(i.cmid);
-    const { error } = known
-      ? await supabase.from("assignments").update(row).eq("id", known)
-      : await supabase.from("assignments").insert({ ...row, status: "todo" });
+    const { data: saved, error } = known
+      ? await supabase.from("assignments").update(row).eq("id", known).select("id").maybeSingle()
+      : await supabase.from("assignments").insert({ ...row, status: "todo" }).select("id").single();
+    if (saved?.id) assignRowId.set(i.cmid, saved.id); // never insert the same Moodle item twice
     if (error) { partial = true; warnings.push(`"${i.title}" not saved.`); }
     else savedAssignments++;
   }
