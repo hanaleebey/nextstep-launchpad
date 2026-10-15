@@ -39,6 +39,8 @@ export interface PlanInfo {
   description?: string | undefined;
 }
 
+/** Budget for one planning call. Must exceed the function's retry budget
+ *  (3 attempts x 15s + backoff), or the client gives up mid-retry. */
 const AI_TIMEOUT_MS = 40_000;
 
 /** The real reason the last AI planning attempt failed (shown in the UI). */
