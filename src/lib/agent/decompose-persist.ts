@@ -2,7 +2,7 @@
 // decompose.ts stays pure and easy to test.
 import { createSteps, deleteTodoSteps, listAssignments, listSteps, logActivity } from "@/lib/db";
 import type { Step } from "@/types/nextstep";
-import { decompose, SHORT_TASK_LIMIT, type DecomposedStep, type DecomposeInput } from "./decompose";
+import { decompose, type DecomposedStep, type DecomposeInput } from "./decompose";
 import { planAssignment } from "./agent-estimate-client";
 import { stripHtml } from "./estimate";
 import { recomputeBufferStates } from "./buffer";
@@ -31,22 +31,29 @@ export async function persistDecomposition(assignmentId: string, input: Decompos
 
 export interface PlanInfo { type?: string; estimatedMinutes?: number | null; description?: string | undefined }
 
-const AI_TIMEOUT_MS = 15_000;
+const AI_TIMEOUT_MS = 20_000;
 
 /**
- * Steps tailored to THIS assignment: ask the agent (title, type, description)
- * for longer work; short bounded work and any AI failure use decompose().
+ * Steps tailored to THIS assignment, written by the agent from its title,
+ * type and Moodle description. No generic templates are ever saved:
+ *  - A video with no extra instructions is simply one "Watch" step (exact minutes).
+ *  - Everything else goes to the agent; if it is unavailable we return null
+ *    and the assignment stays unplanned so the student can retry.
  */
-async function tailoredSteps(input: DecomposeInput, description?: string): Promise<DecomposedStep[]> {
-  const total = input.estimatedMinutes ?? 0;
-  if (total > 0 && total < SHORT_TASK_LIMIT && input.type !== "paper") return decompose(input);
+export async function tailoredSteps(input: DecomposeInput, description?: string): Promise<DecomposedStep[] | null> {
+  const details = stripHtml(description).slice(0, 4000);
+  const isVideo = ["video", "lecture"].includes(input.type.toLowerCase());
+  if (isVideo && details.length < 40) {
+    const minutes = Math.max(1, Math.round(input.estimatedMinutes ?? 20));
+    return [{ order_index: 0, title: `Watch "${input.title.trim()}"`, timebox_minutes: Math.min(50, minutes), done_criteria: ["Watched to the end"] }];
+  }
   const timeout = new Promise<null>((r) => setTimeout(() => r(null), AI_TIMEOUT_MS));
   const ai = await Promise.race([
     planAssignment({ title: input.title, type: input.type, due_at: input.dueAt,
-      description: stripHtml(description).slice(0, 4000) || undefined, estimated_minutes: input.estimatedMinutes }).catch(() => null),
+      description: details || undefined, estimated_minutes: input.estimatedMinutes }).catch(() => null),
     timeout,
   ]);
-  return ai?.steps?.length ? ai.steps : decompose(input);
+  return ai && ai.source === "ai" && ai.steps.length ? ai.steps : null;
 }
 
 /** Rebuild the not-started steps of one assignment (finished steps are kept). */
@@ -54,35 +61,40 @@ export async function regenerateSteps(assignmentId: string, info: PlanInfo = {})
   const a = (await listAssignments()).find((x) => x.id === assignmentId);
   if (!a) throw new Error("Assignment not found.");
   const input = { title: a.title, type: info.type ?? "paper", estimatedMinutes: info.estimatedMinutes ?? a.estimated_minutes, dueAt: a.due_at };
-  const steps = await persistDecomposition(a.id, input, await tailoredSteps(input, info.description));
+  const planned = await tailoredSteps(input, info.description);
+  if (!planned) throw new Error("The AI planner is unavailable right now. Nothing was changed — try again shortly.");
+  const steps = await persistDecomposition(a.id, input, planned);
   await recomputeBufferStates();
   await logActivity("estimate", `Rebuilt steps for "${a.title}".`);
   return steps;
 }
 
 /**
- * Plan every saved, unfinished assignment that has no steps at all.
- * Uses tailored AI steps when available, deterministic otherwise. Assignments that already have steps are untouched.
- * `types` optionally maps assignment id -> item type for better templates.
+ * Plan every saved, unfinished assignment that has no steps at all, using
+ * assignment-specific AI steps. Assignments the agent couldn't plan are
+ * left unplanned (counted in `failed`) instead of getting template steps.
  */
 export async function decomposeAllUnplanned(
   info: Record<string, PlanInfo> = {},
   onlyIds?: string[],
-): Promise<{ assignments: number; steps: number }> {
+): Promise<{ assignments: number; steps: number; failed: number }> {
   const all = (await listAssignments()).filter((a) => a.status !== "done" && (!onlyIds || onlyIds.includes(a.id)));
   let assignments = 0;
   let steps = 0;
+  let failed = 0;
   for (const a of all) {
     if ((await listSteps(a.id)).length) continue;
     const i = info[a.id] ?? {};
     const input = { title: a.title, type: i.type ?? "paper", estimatedMinutes: i.estimatedMinutes ?? a.estimated_minutes, dueAt: a.due_at };
-    const created = await persistDecomposition(a.id, input, await tailoredSteps(input, i.description));
+    const planned = await tailoredSteps(input, i.description);
+    if (!planned) { failed++; continue; }
+    const created = await persistDecomposition(a.id, input, planned);
     assignments++;
     steps += created.length;
   }
   if (assignments) {
     await recomputeBufferStates();
-    await logActivity("estimate", `Planned ${assignments} assignment(s) into ${steps} timeboxed steps.`);
+    await logActivity("estimate", `Planned ${assignments} assignment(s) into ${steps} assignment-specific steps.`);
   }
-  return { assignments, steps };
+  return { assignments, steps, failed };
 }

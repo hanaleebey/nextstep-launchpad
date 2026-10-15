@@ -15,3 +15,7 @@
 - [x] Saved progress stays in the database across reloads.
 - [x] Background Moodle sync refreshes the Map when done; manual "Sync with Moodle" button.
 - [x] Reset progress and steps when a Moodle due date changes.
+
+# Assignment-specific planning
+- [x] AI generates every plan from the assignment's own instructions (no template steps); videos become one "Watch" step.
+- [x] Stop assignments showing more than once (duplicate saved courses/rows from earlier syncs).

@@ -22,7 +22,15 @@ export async function loadMapData(): Promise<MapData> {
   const lms = getLmsProvider();
   const courses = await lms.getCourses();
   const lists = await Promise.all(courses.map((c) => lms.getAssignments(c.lmsCourseId)));
-  return { courses, assignments: lists.flat(), syncedAt: Date.now() };
+  // One card per assignment even if the provider returned the same work twice.
+  const seen = new Set<string>();
+  const assignments = lists.flat().filter((a) => {
+    const key = `${a.title.trim().toLowerCase()}|${a.dueAt ?? ""}`;
+    if (seen.has(a.lmsAssignmentId) || seen.has(key)) return false;
+    seen.add(a.lmsAssignmentId); seen.add(key);
+    return true;
+  });
+  return { courses, assignments, syncedAt: Date.now() };
 }
 
 const BUFFER_ICON: Record<BufferState, LucideIcon> = { green: CheckCircle2, amber: CircleAlert, red: AlertTriangle };
@@ -73,7 +81,9 @@ export function MapView({ onOpen }: { onOpen: () => void }) {
     try {
       const r = await decomposeAllUnplanned(planInfo(), ids);
       await qc.invalidateQueries();
-      toast.success(r.assignments ? `Planned ${r.assignments} assignment(s) into ${r.steps} steps.` : "Every assignment already has steps.");
+      if (r.assignments) toast.success(`Planned ${r.assignments} assignment(s) into ${r.steps} steps.`);
+      if (r.failed) toast.error(`The AI planner couldn't plan ${r.failed} assignment(s) right now. Try again shortly.`);
+      if (!r.assignments && !r.failed) toast.success("Every assignment already has steps.");
     } catch (e) {
       toast.error(`Couldn't plan steps: ${e instanceof Error ? e.message : String(e)}`);
     } finally { setPlanning(false); }
