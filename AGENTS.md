@@ -26,3 +26,5 @@
 - Re-planning lives in `src/lib/agent/replan.ts` (pure simulation + one `runReplan` persistence entry point); views trigger it and read results back from activity_log, so the decision logic stays testable.
 - The only model call is the `agent-estimate` Supabase Edge Function in the developer's own Supabase project (written and deployed by the developer); the app reaches it only via `src/lib/agent/agent-estimate-client.ts`, which re-sanitizes output and falls back to `decompose()` on any error, so the app never depends on AI.
 - Moodle onboarding reaches the developer-deployed sync only through `src/lib/lms/moodle-sync.ts`, then `process-sync.ts` owns estimation and detected-item persistence; this keeps external access out of views.
+- Connected LMS views use the repository-backed CachedProvider so confirmed plans read persisted assignments and steps rather than mock rows.
+- Detected items reference their assignment and persist manual-edit status; this avoids ambiguous title matching and preserves overrides on sync.

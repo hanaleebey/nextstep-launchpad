@@ -4,9 +4,12 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { MoodleConnectPanel } from "./moodle-connect-panel";
 import { NextStepShell } from "./nextstep-shell";
 
-const mocks = vi.hoisted(() => ({ connect: vi.fn(), connection: vi.fn(), navigate: vi.fn() }));
+const mocks = vi.hoisted(() => ({ connect: vi.fn(), connection: vi.fn(), navigate: vi.fn(), sync: vi.fn(), process: vi.fn(), prepare: vi.fn(), edit: vi.fn(), confirm: vi.fn(), settings: vi.fn(), detected: vi.fn() }));
 vi.mock("@/lib/lms/moodle-connect", () => ({ connectMoodle: mocks.connect }));
-vi.mock("@/lib/db", () => ({ getLmsConnection: mocks.connection }));
+vi.mock("@/lib/db", () => ({ getLmsConnection: mocks.connection, getSettings: mocks.settings, listDetectedItems: mocks.detected }));
+vi.mock("@/lib/lms/moodle-sync", () => ({ syncMoodle: mocks.sync }));
+vi.mock("@/lib/lms/process-sync", () => ({ processMoodleSync: mocks.process }));
+vi.mock("@/lib/agent/connect-plan", () => ({ prepareConnectPlan: mocks.prepare, editDetectedEstimate: mocks.edit, confirmConnectPlan: mocks.confirm }));
 vi.mock("@tanstack/react-router", () => ({ useNavigate: () => mocks.navigate }));
 vi.mock("@/integrations/supabase/client", () => ({ supabase: { auth: { signOut: vi.fn() } } }));
 vi.mock("@/components/ai-plan-panel", () => ({ AiPlanPanel: () => null }));
@@ -22,7 +25,12 @@ function fill() {
   fireEvent.change(screen.getByLabelText("Moodle site URL"), { target: { value: "https://moodle.example.edu" } });
   fireEvent.change(screen.getByLabelText("Web services token"), { target: { value: "test-only-token" } });
 }
-beforeEach(() => { vi.clearAllMocks(); mocks.connection.mockResolvedValue(null); });
+beforeEach(() => {
+  vi.clearAllMocks(); mocks.connection.mockResolvedValue(null);
+  mocks.settings.mockResolvedValue({ timezone: "UTC" });
+  mocks.detected.mockResolvedValue([]);
+  mocks.sync.mockImplementation(() => new Promise(() => {}));
+});
 afterEach(cleanup);
 
 describe("Moodle onboarding", () => {
@@ -59,6 +67,42 @@ describe("Moodle onboarding", () => {
     fill();
     fireEvent.click(screen.getByRole("button", { name: "Connect to Moodle" }));
     expect(await screen.findByRole("alert")).toHaveTextContent("Couldn't reach the connection service.");
+  });
+
+  it("automatically detects, prepares, edits, and confirms into Map", async () => {
+    const item = { id: "d1", assignment_id: "a1", title: "Memory lecture", item_type: "video", signal_value: "18:32 length", estimated_minutes: 19, estimated_is_manual: false, confidence: "medium" };
+    mocks.connect.mockResolvedValue({ ok: true, siteName: "Test Moodle", username: "Student" });
+    mocks.sync.mockResolvedValue({ ok: true, partial: false, summary: { courses: 1, assignments: 1, items: 1 }, items: [], warnings: [] });
+    mocks.process.mockResolvedValue([item]);
+    mocks.prepare.mockResolvedValue({ assignments: 1, steps: 4, firstDeadline: "2026-10-18T18:00:00Z", redTitles: [] });
+    mocks.edit.mockResolvedValue({ ...item, estimated_minutes: 45, estimated_is_manual: true });
+    mocks.confirm.mockResolvedValue(undefined);
+    mount(<NextStepShell email="student@example.edu" initialTab="connect" />);
+    fill(); fireEvent.click(screen.getByRole("button", { name: "Connect to Moodle" }));
+    await screen.findByText("18:32 length");
+    expect(mocks.sync).toHaveBeenCalledTimes(1);
+    expect(screen.getByText("Confirm plan", { selector: ".connect-step-label" }).closest("li")).toHaveAttribute("aria-current", "step");
+    fireEvent.click(screen.getByRole("button", { name: "Edit estimated time for Memory lecture" }));
+    fireEvent.change(screen.getByLabelText("Estimated minutes for Memory lecture"), { target: { value: "45" } });
+    fireEvent.click(screen.getByRole("button", { name: "Save estimate" }));
+    await screen.findByText("manual");
+    expect(screen.getByText("Total this week: est. 0h 45m")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Build my plan" }));
+    await screen.findByRole("heading", { name: "Semester map" });
+    expect(mocks.confirm).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps the connection and retries a failed detection without asking for details", async () => {
+    mocks.connection.mockResolvedValue({ site_url: "https://moodle.example.edu" });
+    mocks.sync.mockRejectedValueOnce(new Error("Moodle sync could not finish."));
+    mocks.sync.mockResolvedValueOnce({ ok: true, partial: false, warnings: [], items: [], summary: { courses: 0, assignments: 0, items: 0 } });
+    mocks.process.mockResolvedValue([]);
+    mocks.prepare.mockResolvedValue({ assignments: 0, steps: 0, firstDeadline: null, redTitles: [] });
+    mount(<MoodleConnectPanel />);
+    await screen.findByText("Moodle sync could not finish.");
+    fireEvent.click(screen.getByRole("button", { name: "Try again" }));
+    await screen.findByText("No work due this week was found.");
+    expect(mocks.connect).not.toHaveBeenCalled();
   });
 
   it("opens Get started on first run and from the connection pill", async () => {

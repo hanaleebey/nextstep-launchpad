@@ -43,7 +43,7 @@ export async function processMoodleSync(sync: MoodleSyncResult, timezone: string
   const courseIds = [...new Set(sync.items.map((item) => item.lmsCourseId))];
   const dueDates = courseIds.flatMap((id) => inferDueDates(preliminary.filter(({ item }) => item.lmsCourseId === id).map(({ item, base }) => ({
     id: item.cmid, section: item.sectionIndex, position: item.moduleIndex,
-    dueAt: item.dueAt, estimatedMinutes: assignmentByCmid.get(item.cmid)?.estimated_is_manual ? assignmentByCmid.get(item.cmid)?.estimated_minutes : base.minutes,
+    dueAt: item.dueAt, estimatedMinutes: assignmentByCmid.get(item.cmid)?.estimated_is_manual ? assignmentByCmid.get(item.cmid)?.estimated_minutes ?? base.minutes : base.minutes,
   }))));
   const dueById = new Map(dueDates.map((d) => [d.id, d.dueAt]));
   const { start, end } = weekInTimezone(new Date(), timezone);
@@ -51,7 +51,7 @@ export async function processMoodleSync(sync: MoodleSyncResult, timezone: string
 
   for (const { item, base } of preliminary) {
     const assignment = assignmentByCmid.get(item.cmid);
-    if (!assignment) continue;
+    if (!assignment || assignment.status === "done") continue;
     const dueAt = dueById.get(item.cmid) ?? item.dueAt;
     if (dueAt && assignment.due_at !== dueAt) await updateAssignment(assignment.id, { due_at: dueAt });
     if (!dueAt || new Date(dueAt) < start || new Date(dueAt) >= end) continue;
