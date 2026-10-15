@@ -64,7 +64,7 @@ describe("Moodle onboarding", () => {
   it("opens Get started on first run and from the connection pill", async () => {
     mount(<NextStepShell email="student@example.edu" />);
     await screen.findByRole("heading", { name: "Get started" });
-    fireEvent.click(screen.getByRole("tab", { name: "Map" }));
+    fireEvent.mouseDown(screen.getByRole("tab", { name: "Map" }), { button: 0, ctrlKey: false });
     await screen.findByRole("heading", { name: "Semester map" });
     fireEvent.click(screen.getByRole("button", { name: "Open LMS connection" }));
     await screen.findByRole("heading", { name: "Get started" });
