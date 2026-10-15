@@ -246,6 +246,8 @@ Deno.serve(async (req: Request): Promise<Response> => {
 
     if (!res.ok) {
       const detail = (await res.text()).slice(0, 300);
+      // Log the real reason so it is visible in the function logs (no secrets).
+      console.error(`agent-estimate model failure: status=${res.status} model=${model} keyPrefix=${apiKey.slice(0, 3)} detail=${detail}`);
       return fail("MODEL_UNAVAILABLE", `The model returned ${res.status}. ${detail}`);
     }
 
@@ -261,6 +263,7 @@ Deno.serve(async (req: Request): Promise<Response> => {
     if (name === "TimeoutError" || name === "AbortError") {
       return fail("MODEL_TIMEOUT", "The model took too long to answer.");
     }
+    console.error(`agent-estimate fetch error: ${String((err as Error)?.message ?? err).slice(0, 200)}`);
     return fail("MODEL_UNAVAILABLE", "Could not reach the model.");
   }
 
