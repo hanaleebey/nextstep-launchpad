@@ -71,26 +71,44 @@ export class MoodleProvider implements LmsProvider {
   /** Manual "Sync with Moodle": skip the cooldown and report failures. */
   syncNow(): Promise<void> { return this.refresh(true); }
 
+  /** Earlier syncs could save the same Moodle course twice; treat those rows as one course. */
+  private async courseGroups(): Promise<Map<string, string[]>> {
+    const groups = new Map<string, string[]>(); // canonical course row id -> all row ids for that Moodle course
+    const byLms = new Map<string, string>();
+    for (const c of await listCourses()) {
+      const key = c.lms_course_id ?? `name:${c.name.trim().toLowerCase()}`;
+      const canonical = byLms.get(key);
+      if (canonical) groups.get(canonical)!.push(c.id);
+      else { byLms.set(key, c.id); groups.set(c.id, [c.id]); }
+    }
+    return groups;
+  }
+
   async getCourses(): Promise<Course[]> {
     let rows = await listCourses();
     // Existing work appears immediately. Only the first, empty import waits for sync.
     if (rows.length) void this.refresh();
     else { await this.refresh(); rows = await listCourses(); }
+    const groups = await this.courseGroups();
     // Keep database UUIDs: Execute and the planning engines use these for persistence.
-    return rows.map((c) => ({ lmsCourseId: c.id, name: c.name, code: c.code ?? c.name }));
+    return rows.filter((c) => groups.has(c.id)).map((c) => ({ lmsCourseId: c.id, name: c.name, code: c.code ?? c.name }));
   }
 
   async getAssignments(courseId: string): Promise<Assignment[]> {
     void this.refresh();
-    const [detected, assignments] = await Promise.all([listDetectedItems(), listAssignments()]);
-    const withSteps = await Promise.all(assignments.filter((a) => a.course_id === courseId).map(async (a) => ({ a, steps: await listSteps(a.id) })));
-    // Deduplicate: one card per Moodle item (or per title when no Moodle id). Keep the row with the most progress.
+    const [detected, assignments, groups] = await Promise.all([listDetectedItems(), listAssignments(), this.courseGroups()]);
+    const courseRows = new Set(groups.get(courseId) ?? [courseId]);
+    const withSteps = await Promise.all(assignments.filter((a) => a.course_id && courseRows.has(a.course_id)).map(async (a) => ({ a, steps: await listSteps(a.id) })));
+    // Deduplicate: one card per Moodle item AND per title+due date. Keep the row with the most progress.
+    const score = (x: (typeof withSteps)[number]) => x.steps.filter((s) => s.status !== "todo").length * 1000 + x.steps.length;
+    const sorted = [...withSteps].sort((x, y) => score(y) - score(x));
+    const seen = new Set<string>();
     const best = new Map<string, (typeof withSteps)[number]>();
-    for (const r of withSteps) {
-      const key = r.a.lms_assignment_id ?? `title:${r.a.title.trim().toLowerCase()}`;
-      const cur = best.get(key);
-      const score = (x: typeof r) => x.steps.filter((s) => s.status !== "todo").length * 1000 + x.steps.length;
-      if (!cur || score(r) > score(cur)) best.set(key, r);
+    for (const r of sorted) {
+      const keys = [r.a.lms_assignment_id ? `cm:${r.a.lms_assignment_id}` : null, `title:${r.a.title.trim().toLowerCase()}|${r.a.due_at ?? ""}`].filter((k): k is string => !!k);
+      if (keys.some((k) => seen.has(k))) continue;
+      keys.forEach((k) => seen.add(k));
+      best.set(r.a.id, r);
     }
     return [...best.values()].map(({ a, steps }) => {
       const module = this.modules.find((m) => m.cmid === a.lms_assignment_id);

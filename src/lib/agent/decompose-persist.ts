@@ -2,7 +2,7 @@
 // decompose.ts stays pure and easy to test.
 import { createSteps, deleteTodoSteps, listAssignments, listSteps, logActivity } from "@/lib/db";
 import type { Step } from "@/types/nextstep";
-import { decompose, SHORT_TASK_LIMIT, type DecomposedStep, type DecomposeInput } from "./decompose";
+import { decompose, type DecomposedStep, type DecomposeInput } from "./decompose";
 import { planAssignment } from "./agent-estimate-client";
 import { stripHtml } from "./estimate";
 import { recomputeBufferStates } from "./buffer";
