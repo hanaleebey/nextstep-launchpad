@@ -12,7 +12,7 @@ describe("sanitizeAiSteps", () => {
   });
   it("caps at 8 steps and rejects fewer than 4", () => {
     expect(sanitizeAiSteps({ steps: Array(12).fill(step(20)) })).toHaveLength(8);
-    expect(sanitizeAiSteps({ steps: [step(20)] })).toBeNull();
+    expect(sanitizeAiSteps({ steps: [step(4)] })![0]!.timebox_minutes).toBe(4); // one-step plans (a video) are valid
     expect(sanitizeAiSteps("garbage")).toBeNull();
   });
 });
