@@ -41,6 +41,12 @@ function ErrorComponent({ error, reset }: ErrorComponentProps) {
   console.error(error);
   const router = useRouter();
   useEffect(() => {
+    // A stale page chunk is fixed by one fresh reload, not an error screen.
+    if (/Failed to fetch dynamically imported module|Importing a module script failed/i.test(String((error as Error | undefined)?.message)) && !sessionStorage.getItem("ns-chunk-reload")) {
+      sessionStorage.setItem("ns-chunk-reload", "1");
+      window.location.reload();
+      return;
+    }
     reportLovableError(error, { boundary: "tanstack_root_error_component" });
   }, [error]);
 
@@ -118,6 +124,29 @@ function RootShell({ children }: { children: ReactNode }) {
 function RootComponent() {
   const { queryClient } = Route.useRouteContext();
   const router = useRouter();
+  useEffect(() => {
+    // After a dev-server restart the tab may request an old, timestamped page
+    // chunk that no longer exists. Reload once to fetch fresh modules instead
+    // of leaving a blank screen; the session flag prevents reload loops.
+    const isStaleChunk = (msg: string) => /Failed to fetch dynamically imported module|Importing a module script failed/i.test(msg);
+    const reloadOnce = () => {
+      if (sessionStorage.getItem("ns-chunk-reload")) return;
+      sessionStorage.setItem("ns-chunk-reload", "1");
+      window.location.reload();
+    };
+    const onPreload = (e: Event) => { e.preventDefault(); reloadOnce(); };
+    const onRejection = (e: PromiseRejectionEvent) => {
+      if (isStaleChunk(String((e.reason as Error)?.message ?? e.reason))) reloadOnce();
+    };
+    window.addEventListener("vite:preloadError", onPreload);
+    window.addEventListener("unhandledrejection", onRejection);
+    const clear = window.setTimeout(() => sessionStorage.removeItem("ns-chunk-reload"), 10000);
+    return () => {
+      window.removeEventListener("vite:preloadError", onPreload);
+      window.removeEventListener("unhandledrejection", onRejection);
+      window.clearTimeout(clear);
+    };
+  }, []);
   useEffect(() => {
     const { data } = supabase.auth.onAuthStateChange((event) => {
       if (event !== "SIGNED_IN" && event !== "SIGNED_OUT" && event !== "USER_UPDATED") return;
