@@ -1,0 +1,1 @@
+ALTER TABLE public.detected_items ADD COLUMN IF NOT EXISTS assignment_id uuid REFERENCES public.assignments(id) ON DELETE CASCADE; ALTER TABLE public.detected_items ADD COLUMN IF NOT EXISTS estimated_is_manual boolean NOT NULL DEFAULT false;

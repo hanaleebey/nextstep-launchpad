@@ -35,6 +35,7 @@ export interface Assignment {
   dueAt: string | null; // ISO timestamp
   estimatedMinutes: number | null;
   progressPct: number;
+  bufferState?: "green" | "amber" | "red";
   steps?: LmsStep[];
 }
 

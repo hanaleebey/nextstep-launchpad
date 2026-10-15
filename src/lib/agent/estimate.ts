@@ -53,7 +53,7 @@ export interface VideoSignals {
   oembedTitle?: string | null; // oEmbed response confirms the video exists
 }
 export function estimateVideo(s: VideoSignals): EstimateResult {
-  if (!usable(s.durationSeconds)) return fallbackEstimate("video duration unknown");
+  if (!usable(s.durationSeconds)) return { minutes: 20, confidence: "low", signals: ["fallback: video duration unknown"] };
   const signals = [`video duration: ${Math.round(s.durationSeconds)}s`];
   if (s.oembedTitle) signals.push(`oEmbed title: ${s.oembedTitle}`);
   return {

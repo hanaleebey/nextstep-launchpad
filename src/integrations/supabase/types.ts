@@ -159,9 +159,11 @@ export type Database = {
       }
       detected_items: {
         Row: {
+          assignment_id: string | null
           confidence: string
           confirmed: boolean
           created_at: string
+          estimated_is_manual: boolean
           estimated_minutes: number | null
           id: string
           item_type: string
@@ -172,9 +174,11 @@ export type Database = {
           user_id: string
         }
         Insert: {
+          assignment_id?: string | null
           confidence?: string
           confirmed?: boolean
           created_at?: string
+          estimated_is_manual?: boolean
           estimated_minutes?: number | null
           id?: string
           item_type: string
@@ -185,9 +189,11 @@ export type Database = {
           user_id?: string
         }
         Update: {
+          assignment_id?: string | null
           confidence?: string
           confirmed?: boolean
           created_at?: string
+          estimated_is_manual?: boolean
           estimated_minutes?: number | null
           id?: string
           item_type?: string
@@ -197,7 +203,15 @@ export type Database = {
           updated_at?: string
           user_id?: string
         }
-        Relationships: []
+        Relationships: [
+          {
+            foreignKeyName: "detected_items_assignment_id_fkey"
+            columns: ["assignment_id"]
+            isOneToOne: false
+            referencedRelation: "assignments"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       estimate_events: {
         Row: {
