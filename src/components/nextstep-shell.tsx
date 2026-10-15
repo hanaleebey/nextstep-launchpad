@@ -169,7 +169,7 @@ export function NextStepShell({
                 <BehindView />
               </TabsContent>
               <TabsContent value="connect">
-                <PlaceholderPanel title="Connect" icon={Cable} />
+                <MoodleConnectPanel onComplete={() => setTab("map")} />
               </TabsContent>
             </>
           ))}
