@@ -7,7 +7,7 @@ import { focusAssignment, useExecuteSession, withOverrides } from "@/lib/session
 import type { LmsStep } from "@/lib/lms";
 import { AlertTriangle, Ban, Check, CheckCircle2, Circle, ListChecks, Square, X, CircleAlert, Inbox, Loader2, RefreshCw, type LucideIcon } from "lucide-react";
 import { getLmsProvider, subscribeLmsDataChanged, syncLmsNow, type Assignment, type Course } from "@/lib/lms";
-import { decomposeAllUnplanned } from "@/lib/agent/decompose-persist";
+import { decomposeAllUnplanned, regenerateSteps } from "@/lib/agent/decompose-persist";
 import { BUFFER_LABEL, bufferStateFor, computeSlack, daysUntil, remainingMinutes } from "@/lib/engine/buffer";
 import { scheduleWeek, type SchedulableStep } from "@/lib/engine/schedule";
 import type { BufferState } from "@/types/nextstep";
@@ -71,12 +71,27 @@ export function MapView({ onOpen }: { onOpen: () => void }) {
   async function planUnplanned(ids?: string[]) {
     setPlanning(true);
     try {
-      const types = Object.fromEntries((data?.assignments ?? []).map((a) => [a.lmsAssignmentId, a.itemType]));
-      const r = await decomposeAllUnplanned(types, ids);
+      const r = await decomposeAllUnplanned(planInfo(), ids);
       await qc.invalidateQueries();
       toast.success(r.assignments ? `Planned ${r.assignments} assignment(s) into ${r.steps} steps.` : "Every assignment already has steps.");
     } catch (e) {
       toast.error(`Couldn't plan steps: ${e instanceof Error ? e.message : String(e)}`);
+    } finally { setPlanning(false); }
+  }
+
+  function planInfo() {
+    return Object.fromEntries((data?.assignments ?? []).map((a) => [a.lmsAssignmentId,
+      { type: a.itemType, estimatedMinutes: a.estimatedMinutes, description: a.description }]));
+  }
+
+  async function rebuild(id: string) {
+    setPlanning(true);
+    try {
+      const steps = await regenerateSteps(id, planInfo()[id]);
+      await qc.invalidateQueries();
+      toast.success(`Rebuilt into ${steps.length} step(s).`);
+    } catch (e) {
+      toast.error(`Couldn't rebuild steps: ${e instanceof Error ? e.message : String(e)}`);
     } finally { setPlanning(false); }
   }
 
