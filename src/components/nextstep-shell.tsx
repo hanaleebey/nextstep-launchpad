@@ -5,7 +5,6 @@ import { Button } from "@/components/ui/button";
 import { getLmsConnection } from "@/lib/db";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { MoodleConnectPanel } from "@/components/moodle-connect-panel";
-import { AiPlanPanel } from "@/components/ai-plan-panel";
 import { MapView } from "@/components/map-view";
 import { ExecuteView } from "@/components/execute-view";
 import { BehindView } from "@/components/behind-view";
@@ -62,7 +61,7 @@ export function NextStepShell({ email, initialTab, children }: { email: string; 
         <TabsContent value="map"><MapView onOpen={() => setTab("execute")} /></TabsContent>
         <TabsContent value="execute"><ExecuteView /></TabsContent>
         <TabsContent value="behind"><BehindView /></TabsContent>
-        <TabsContent value="connect"><MoodleConnectPanel /><div className="connect-existing-plan"><AiPlanPanel /></div></TabsContent>
+        <TabsContent value="connect"><MoodleConnectPanel onComplete={() => setTab("map")} /></TabsContent>
                 </>)}
       </main>
     </Tabs>

@@ -92,7 +92,7 @@ export function MapView({ onOpen }: { onOpen: () => void }) {
       const steps = a.steps ?? [];
       return {
         a, days, remaining, slack,
-        state: bufferStateFor(slack),
+        state: a.bufferState ?? bufferStateFor(slack),
         doneSteps: steps.filter((s) => s.status === "done").length,
         totalSteps: steps.length,
       };

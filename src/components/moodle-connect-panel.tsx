@@ -1,16 +1,22 @@
 // The submitted token is cleared immediately and never retained in feedback.
-import { useState, type FormEvent } from "react";
+import { useEffect, useRef, useState, type FormEvent } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { AlertTriangle, ArrowRight, Cable, Check, CheckCircle2, ChevronDown, Eye, EyeOff, Loader2, LockKeyhole, ScanSearch, ShieldCheck } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { getLmsConnection } from "@/lib/db";
+import { getLmsConnection, getSettings, listDetectedItems } from "@/lib/db";
 import { connectMoodle } from "@/lib/lms/moodle-connect";
+
+import { syncMoodle } from "@/lib/lms/moodle-sync";
+import { processMoodleSync } from "@/lib/lms/process-sync";
+import { confirmConnectPlan, editDetectedEstimate, prepareConnectPlan, type ConnectPlanSummary } from "@/lib/agent/connect-plan";
+import { DetectedWorkPanel } from "./detected-work-panel";
+import type { DetectedItem } from "@/types/nextstep";
 
 const STEPS = ["Connect your LMS", "Auto-detect work", "Confirm plan"];
 
-export function MoodleConnectPanel() {
+export function MoodleConnectPanel({ onComplete }: { onComplete?: () => void }) {
   const queryClient = useQueryClient();
   const connection = useQuery({ queryKey: ["lms-connection"], queryFn: getLmsConnection });
   const [siteUrl, setSiteUrl] = useState("");
@@ -19,7 +25,67 @@ export function MoodleConnectPanel() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
-  const activeStep = success || connection.data?.site_url ? 2 : 1;
+  const [items, setItems] = useState<DetectedItem[]>([]);
+  const [summary, setSummary] = useState<ConnectPlanSummary | null>(null);
+  const [detecting, setDetecting] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [detectError, setDetectError] = useState<string | null>(null);
+  const [warnings, setWarnings] = useState<string[]>([]);
+  const [ready, setReady] = useState(false);
+  const [timezone, setTimezone] = useState("UTC");
+  const started = useRef(false);
+  const activeStep = summary ? 3 : success || connection.data?.site_url ? 2 : 1;
+
+  async function detect() {
+    setDetecting(true); setDetectError(null); setSummary(null);
+    try {
+      const settings = await getSettings();
+      const zone = settings?.timezone ?? "UTC";
+      setTimezone(zone);
+      const synced = await syncMoodle();
+      if (!synced.ok && !synced.partial) throw new Error("Moodle could not refresh your work. Try again.");
+      setWarnings(synced.warnings);
+      const detected = await processMoodleSync(synced, zone);
+      setItems(detected); setReady(true);
+      setSummary(await prepareConnectPlan(detected));
+      await queryClient.invalidateQueries({ queryKey: ["lms"] });
+    } catch (e) { setDetectError(e instanceof Error ? e.message : "Could not detect your work. Try again."); }
+    finally { setDetecting(false); }
+  }
+
+  useEffect(() => {
+    if (!connection.data?.site_url || started.current) return;
+    started.current = true;
+    void (async () => {
+      try {
+        const cached = await listDetectedItems();
+        if (cached.length) {
+          setItems(cached); setReady(true);
+          setTimezone((await getSettings())?.timezone ?? "UTC");
+          setSummary(await prepareConnectPlan(cached));
+        } else await detect();
+      } catch { setDetectError("Could not restore your detected work. Try again."); }
+    })();
+  }, [connection.data?.site_url]);
+
+  async function edit(item: DetectedItem, minutes: number) {
+    setSaving(true);
+    try {
+      const updated = await editDetectedEstimate(item, minutes);
+      const next = items.map((row) => row.id === updated.id ? updated : row);
+      setItems(next);
+      setSummary(await prepareConnectPlan(next, updated.assignment_id ?? undefined));
+    } finally { setSaving(false); }
+  }
+  async function confirm() {
+    setSaving(true); setDetectError(null);
+    try {
+      await confirmConnectPlan(items);
+      await queryClient.invalidateQueries({ queryKey: ["lms"] });
+      onComplete?.();
+    } catch { setDetectError("Your plan could not be confirmed. Try again; your work has been kept."); }
+    finally { setSaving(false); }
+  }
 
   async function onSubmit(e: FormEvent) {
     e.preventDefault();
@@ -34,7 +100,9 @@ export function MoodleConnectPanel() {
       const safeText = (text: string) => submittedToken ? text.split(submittedToken).join("[redacted]") : text;
       if (res.ok) {
         setSuccess(safeText(`Connected to ${res.siteName} as ${res.username || "you"}.`));
+        started.current = true;
         await queryClient.invalidateQueries({ queryKey: ["lms-connection"] });
+        await detect();
       } else {
         setError(safeText(res.message));
       }
@@ -98,10 +166,7 @@ export function MoodleConnectPanel() {
             </ol>
           </details>
         </section>
-        <section className="connect-card connect-detect" aria-labelledby="auto-detect-title">
-          <div className="connect-card-heading"><ScanSearch size={20} aria-hidden="true" /><h2 id="auto-detect-title">Auto-detect this week</h2></div>
-          <div className="connect-detect-placeholder"><ScanSearch size={36} strokeWidth={1.4} aria-hidden="true" /><p>Coming soon</p></div>
-        </section>
+        <DetectedWorkPanel items={items} summary={summary} busy={detecting} saving={saving} error={detectError} warnings={warnings} ready={ready} timezone={timezone} onRetry={() => void detect()} onEdit={edit} onConfirm={() => void confirm()} />
       </div>
     </div>
   );
