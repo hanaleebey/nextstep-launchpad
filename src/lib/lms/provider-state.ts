@@ -31,3 +31,11 @@ export function setUseDemoData(demo: boolean) {
 }
 export function setShowingCachedData(cached: boolean) { update({ cached }); }
 export function clearProviderState() { preferenceKey = null; update(initial); }
+
+// Fired after a background Moodle sync writes new rows, so views can refetch.
+const dataListeners = new Set<() => void>();
+export function subscribeLmsDataChanged(listener: () => void) {
+  dataListeners.add(listener);
+  return () => { dataListeners.delete(listener); };
+}
+export function notifyLmsDataChanged() { dataListeners.forEach((l) => l()); }

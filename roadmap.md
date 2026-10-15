@@ -9,3 +9,9 @@
 - [x] Decompose detected work, compute buffers, and confirm into the real Map.
 - [x] Test automatic progression, persistence, retries, manual editing, and the detection panel (55 checks passed).
 - [ ] Live Moodle verification — blocked by external unmanaged authentication; no authenticated browser session is available.
+
+# Map planning & sync
+- [x] Map button that deterministically plans every assignment without steps (plus per-assignment button).
+- [x] Saved progress stays in the database across reloads.
+- [x] Background Moodle sync refreshes the Map when done; manual "Sync with Moodle" button.
+- [x] Reset progress and steps when a Moodle due date changes.

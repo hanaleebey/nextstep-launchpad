@@ -1,8 +1,9 @@
 // Side-effecting half of decomposition: save steps. Kept separate so
 // decompose.ts stays pure and easy to test.
-import { createSteps, deleteTodoSteps, listSteps } from "@/lib/db";
+import { createSteps, deleteTodoSteps, listAssignments, listSteps, logActivity } from "@/lib/db";
 import type { Step } from "@/types/nextstep";
 import { decompose, type DecomposeInput } from "./decompose";
+import { recomputeBufferStates } from "./buffer";
 
 /**
  * Generate steps for an assignment and save them.
@@ -24,4 +25,31 @@ export async function persistDecomposition(assignmentId: string, input: Decompos
     done_criteria: s.done_criteria,
   }));
   return createSteps(rows);
+}
+
+/**
+ * Plan every saved, unfinished assignment that has no steps at all.
+ * Deterministic only (no AI). Assignments that already have steps are untouched.
+ * `types` optionally maps assignment id -> item type for better templates.
+ */
+export async function decomposeAllUnplanned(
+  types: Record<string, string> = {},
+  onlyIds?: string[],
+): Promise<{ assignments: number; steps: number }> {
+  const all = (await listAssignments()).filter((a) => a.status !== "done" && (!onlyIds || onlyIds.includes(a.id)));
+  let assignments = 0;
+  let steps = 0;
+  for (const a of all) {
+    if ((await listSteps(a.id)).length) continue;
+    const created = await persistDecomposition(a.id, {
+      title: a.title, type: types[a.id] ?? "paper", estimatedMinutes: a.estimated_minutes, dueAt: a.due_at,
+    });
+    assignments++;
+    steps += created.length;
+  }
+  if (assignments) {
+    await recomputeBufferStates();
+    await logActivity("estimate", `Planned ${assignments} assignment(s) into ${steps} timeboxed steps.`);
+  }
+  return { assignments, steps };
 }
