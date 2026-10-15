@@ -57,7 +57,7 @@ export class MoodleProvider implements LmsProvider {
         ?? this.modules.find((m) => m.cmid === a.lms_assignment_id)?.itemType ?? "paper",
       dueAt: a.due_at, estimatedMinutes: a.estimated_minutes, progressPct: a.progress_pct,
       bufferState: a.buffer_state,
-      steps: (await listSteps(a.id)).map((s) => ({ orderIndex: s.order_index, title: s.title,
+      steps: (await listSteps(a.id)).map((s) => ({ id: s.id, orderIndex: s.order_index, title: s.title,
         timeboxMinutes: s.timebox_minutes, doneCriteria: s.done_criteria, status: s.status })),
     })));
   }
