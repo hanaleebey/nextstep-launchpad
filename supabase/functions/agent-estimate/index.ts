@@ -1,8 +1,7 @@
-
 // supabase/functions/agent-estimate/index.ts
 //
 // NextStep's single model path. Two modes:
-//   mode: 'plan'   -> generate 4-8 timeboxed steps for an assignment that has none
+//   mode: 'plan'   -> generate 1-8 timeboxed steps for an assignment that has none
 //   mode: 'refine' -> upgrade a low-confidence deterministic estimate and its steps
 //
 // Contract:
@@ -13,10 +12,16 @@
 //   Failure : { error: { code, message } }
 //
 // Secrets (set with `supabase secrets set ...`):
-//   MODEL_API_KEY   required - your Google AI Studio (Gemini) key. Both key
-//                   formats work: legacy keys start with "AIza", newer Auth
-//                   Keys start with "AQ." (sent as a Bearer token instead).
-//   MODEL_NAME      optional, default gemini-2.5-flash
+//   MODEL_API_KEY   required - your model provider's API key.
+//   MODEL_BASE_URL  optional - any OpenAI-compatible endpoint. Default:
+//                   https://api.openai.com/v1
+//                     Gemini      https://generativelanguage.googleapis.com/v1beta/openai
+//                     OpenRouter  https://openrouter.ai/api/v1
+//                     Groq        https://api.groq.com/openai/v1
+//   MODEL_NAME      optional - default gpt-4o-mini (e.g. gemini-2.5-flash for Gemini).
+//
+// The provider is a setting, not a rewrite: changing MODEL_BASE_URL and
+// MODEL_NAME is all it takes to move between vendors.
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.4";
 
@@ -148,11 +153,7 @@ Rules:
 Reply with JSON only, exactly this shape:
 {"minutes": <integer>, "confidence": "high" | "medium" | "low", "steps": [{"title": "...", "timebox_minutes": <integer>, "done_criteria": ["..."]}]}`;
 
-function userPrompt(
-  mode: string,
-  assignment: Record<string, unknown>,
-  signals: unknown,
-): string {
+function userPrompt(mode: string, assignment: Record<string, unknown>, signals: unknown): string {
   const lines: string[] = [];
   lines.push(`Mode: ${mode === "refine" ? "refine an existing estimate" : "plan a new assignment"}`);
   lines.push(`Title: ${String(assignment.title ?? "Untitled")}`);
@@ -181,11 +182,9 @@ Deno.serve(async (req: Request): Promise<Response> => {
   if (!authHeader.startsWith("Bearer ")) {
     return fail("UNAUTHENTICATED", "Sign in required.", 401);
   }
-  const supabase = createClient(
-    Deno.env.get("SUPABASE_URL") ?? "",
-    Deno.env.get("SUPABASE_ANON_KEY") ?? "",
-    { global: { headers: { Authorization: authHeader } } },
-  );
+  const supabase = createClient(Deno.env.get("SUPABASE_URL") ?? "", Deno.env.get("SUPABASE_ANON_KEY") ?? "", {
+    global: { headers: { Authorization: authHeader } },
+  });
   const { data: auth, error: authError } = await supabase.auth.getUser();
   if (authError || !auth?.user) {
     return fail("UNAUTHENTICATED", "Sign in required.", 401);
@@ -212,45 +211,46 @@ Deno.serve(async (req: Request): Promise<Response> => {
   if (!apiKey) {
     return fail("NOT_CONFIGURED", "The model key is not set on the server.");
   }
-  const model = Deno.env.get("MODEL_NAME") ?? "gemini-2.5-flash";
-  const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`;
+  // Any OpenAI-compatible endpoint works. Gemini uses its compatibility layer
+  // at /v1beta/openai/, which takes a standard Bearer token.
+  const baseUrl = (Deno.env.get("MODEL_BASE_URL") ?? "https://api.openai.com/v1").replace(/\/+$/, "");
+  const model = Deno.env.get("MODEL_NAME") ?? "gpt-4o-mini";
 
-  // --- call Gemini ---------------------------------------------------------
-  // AI Studio keys (both the legacy "AIza..." format and newer "AQ...." keys)
-  // are API keys, not OAuth tokens - they must go in the x-goog-api-key
-  // header. Sending them as a Bearer token makes Google return 401.
-  const authHeaders: Record<string, string> = {
-    "Content-Type": "application/json",
-    "x-goog-api-key": apiKey,
-  };
-
+  // --- call the model ------------------------------------------------------
   let raw: string;
   try {
-    const res = await fetch(url, {
+    const res = await fetch(`${baseUrl}/chat/completions`, {
       method: "POST",
-      headers: authHeaders,
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${apiKey}`,
+      },
       body: JSON.stringify({
-        systemInstruction: { parts: [{ text: SYSTEM_PROMPT }] },
-        contents: [{
-          role: "user",
-          parts: [{ text: userPrompt(mode, assignment as Record<string, unknown>, body.signals) }],
-        }],
-        // Ask Gemini for raw JSON; validate() below is still the real guard.
-        generationConfig: { temperature: 0.4, responseMimeType: "application/json" },
+        model,
+        temperature: 0.4,
+        // If your provider rejects response_format, delete this line -
+        // validate() below is the real guard.
+        response_format: { type: "json_object" },
+        messages: [
+          { role: "system", content: SYSTEM_PROMPT },
+          {
+            role: "user",
+            content: userPrompt(mode, assignment as Record<string, unknown>, body.signals),
+          },
+        ],
       }),
       signal: AbortSignal.timeout(MODEL_TIMEOUT_MS),
     });
 
     if (!res.ok) {
       const detail = (await res.text()).slice(0, 300);
-      // Log the real reason so it is visible in the function logs (no secrets).
-      console.error(`agent-estimate model failure: status=${res.status} model=${model} keyPrefix=${apiKey.slice(0, 3)} detail=${detail}`);
+      // Log the reason and the model name only - never the key.
+      console.error(`agent-estimate model failure: status=${res.status} model=${model} detail=${detail}`);
       return fail("MODEL_UNAVAILABLE", `The model returned ${res.status}. ${detail}`);
     }
 
     const payload = await res.json();
-    const content = payload?.candidates?.[0]?.content?.parts
-      ?.map((p: { text?: string }) => p.text ?? "").join("");
+    const content = payload?.choices?.[0]?.message?.content;
     if (typeof content !== "string" || !content.trim()) {
       return fail("INVALID_MODEL_OUTPUT", "The model returned an empty answer.");
     }
