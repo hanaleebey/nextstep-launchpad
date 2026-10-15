@@ -12,16 +12,18 @@
 //   Failure : { error: { code, message } }
 //
 // Secrets (set with `supabase secrets set ...`):
-//   MODEL_API_KEY   required - your model provider's API key.
-//   MODEL_BASE_URL  optional - any OpenAI-compatible endpoint. Default:
-//                   https://api.openai.com/v1
-//                     Gemini      https://generativelanguage.googleapis.com/v1beta/openai
-//                     OpenRouter  https://openrouter.ai/api/v1
-//                     Groq        https://api.groq.com/openai/v1
-//   MODEL_NAME      optional - default gpt-4o-mini (e.g. gemini-2.5-flash for Gemini).
+//   MODEL_API_KEY        required - your model provider's API key.
+//   MODEL_BASE_URL       optional - any OpenAI-compatible endpoint. Default:
+//                        https://api.openai.com/v1
+//                          Gemini      https://generativelanguage.googleapis.com/v1beta/openai
+//                          OpenRouter  https://openrouter.ai/api/v1
+//                          Groq        https://api.groq.com/openai/v1
+//   MODEL_NAME           optional - default gpt-4o-mini (e.g. gemini-3.8-flash).
+//   MODEL_NAME_FALLBACK  optional - tried when the primary model is retired,
+//                        overloaded, or rate-limited. Strongly recommended:
+//                        providers retire model names and shed load without notice.
 //
-// The provider is a setting, not a rewrite: changing MODEL_BASE_URL and
-// MODEL_NAME is all it takes to move between vendors.
+// The provider is a setting, not a rewrite.
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.4";
 
@@ -31,7 +33,12 @@ const CORS = {
   "Access-Control-Allow-Methods": "POST, OPTIONS",
 };
 
-const MODEL_TIMEOUT_MS = 20_000;
+const MODEL_TIMEOUT_MS = 15_000;
+/** Attempts per model. 429/5xx are transient - capacity spikes clear in seconds. */
+const MAX_ATTEMPTS = 3;
+const BACKOFF_MS = [600, 1500];
+/** Statuses worth retrying: rate limits and provider-side failures. */
+const TRANSIENT_STATUSES = new Set([408, 409, 425, 429, 500, 502, 503, 504]);
 
 type Confidence = "high" | "medium" | "low";
 
@@ -50,6 +57,8 @@ interface Estimate {
 interface ErrBody {
   error: { code: string; message: string };
 }
+
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 function ok(body: Estimate): Response {
   return new Response(JSON.stringify(body), {
@@ -173,6 +182,81 @@ function userPrompt(mode: string, assignment: Record<string, unknown>, signals: 
   return lines.join("\n");
 }
 
+interface AttemptResult {
+  content: string | null;
+  /** Human-readable reason the last attempt failed. */
+  failure: string;
+}
+
+/** One model, retried through transient failures. */
+async function callModel(baseUrl: string, apiKey: string, model: string, body: unknown): Promise<AttemptResult> {
+  let failure = "No attempt was made.";
+
+  for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+    let res: Response;
+    try {
+      res = await fetch(`${baseUrl}/chat/completions`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${apiKey}`,
+        },
+        body: JSON.stringify({
+          model,
+          temperature: 0.4,
+          // If your provider rejects response_format, delete this line -
+          // validate() below is the real guard.
+          response_format: { type: "json_object" },
+          messages: body,
+        }),
+        signal: AbortSignal.timeout(MODEL_TIMEOUT_MS),
+      });
+    } catch (err) {
+      const name = (err as { name?: string })?.name;
+      const timedOut = name === "TimeoutError" || name === "AbortError";
+      console.error(
+        `agent-estimate fetch error: model=${model} attempt=${attempt} ${String((err as Error)?.message ?? err).slice(0, 200)}`,
+      );
+      failure = timedOut ? "The model took too long to answer." : "Could not reach the model.";
+      if (attempt < MAX_ATTEMPTS) {
+        await sleep(BACKOFF_MS[attempt - 1] ?? 1500);
+        continue;
+      }
+      break;
+    }
+
+    if (res.ok) {
+      const payload = await res.json();
+      const content = payload?.choices?.[0]?.message?.content;
+      if (typeof content === "string" && content.trim()) return { content, failure: "" };
+      failure = "The model returned an empty answer.";
+      break;
+    }
+
+    const detail = (await res.text()).slice(0, 300);
+    // Log the reason and the model name only - never the key.
+    console.error(
+      `agent-estimate model failure: status=${res.status} model=${model} attempt=${attempt} detail=${detail}`,
+    );
+
+    if (res.status === 429 || res.status === 503) {
+      failure = "The model is busy right now. Try again in a moment.";
+    } else if (res.status === 404) {
+      failure = `The model "${model}" is not available on this account. Check MODEL_NAME.`;
+    } else {
+      failure = `The model returned ${res.status}. ${detail}`;
+    }
+
+    if (TRANSIENT_STATUSES.has(res.status) && attempt < MAX_ATTEMPTS) {
+      await sleep(BACKOFF_MS[attempt - 1] ?? 1500);
+      continue;
+    }
+    break;
+  }
+
+  return { content: null, failure };
+}
+
 Deno.serve(async (req: Request): Promise<Response> => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: CORS });
   if (req.method !== "POST") return fail("METHOD_NOT_ALLOWED", "Use POST.", 405);
@@ -214,55 +298,34 @@ Deno.serve(async (req: Request): Promise<Response> => {
   // Any OpenAI-compatible endpoint works. Gemini uses its compatibility layer
   // at /v1beta/openai/, which takes a standard Bearer token.
   const baseUrl = (Deno.env.get("MODEL_BASE_URL") ?? "https://api.openai.com/v1").replace(/\/+$/, "");
-  const model = Deno.env.get("MODEL_NAME") ?? "gpt-4o-mini";
+  const primary = Deno.env.get("MODEL_NAME") ?? "gpt-4o-mini";
+  const secondary = Deno.env.get("MODEL_NAME_FALLBACK");
+  // Providers retire model names and shed load without warning, so try the
+  // fallback before giving up on planning entirely.
+  const models = [primary, secondary].filter((m): m is string => typeof m === "string" && m.trim().length > 0);
 
   // --- call the model ------------------------------------------------------
-  let raw: string;
-  try {
-    const res = await fetch(`${baseUrl}/chat/completions`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${apiKey}`,
-      },
-      body: JSON.stringify({
-        model,
-        temperature: 0.4,
-        // If your provider rejects response_format, delete this line -
-        // validate() below is the real guard.
-        response_format: { type: "json_object" },
-        messages: [
-          { role: "system", content: SYSTEM_PROMPT },
-          {
-            role: "user",
-            content: userPrompt(mode, assignment as Record<string, unknown>, body.signals),
-          },
-        ],
-      }),
-      signal: AbortSignal.timeout(MODEL_TIMEOUT_MS),
-    });
+  const messages = [
+    { role: "system", content: SYSTEM_PROMPT },
+    {
+      role: "user",
+      content: userPrompt(mode, assignment as Record<string, unknown>, body.signals),
+    },
+  ];
 
-    if (!res.ok) {
-      const detail = (await res.text()).slice(0, 300);
-      // Log the reason and the model name only - never the key.
-      console.error(`agent-estimate model failure: status=${res.status} model=${model} detail=${detail}`);
-      return fail("MODEL_UNAVAILABLE", `The model returned ${res.status}. ${detail}`);
+  let raw: string | null = null;
+  let failure = "No model was configured.";
+  for (const model of models) {
+    const result = await callModel(baseUrl, apiKey, model, messages);
+    if (result.content) {
+      raw = result.content;
+      failure = "";
+      break;
     }
-
-    const payload = await res.json();
-    const content = payload?.choices?.[0]?.message?.content;
-    if (typeof content !== "string" || !content.trim()) {
-      return fail("INVALID_MODEL_OUTPUT", "The model returned an empty answer.");
-    }
-    raw = content;
-  } catch (err) {
-    const name = (err as { name?: string })?.name;
-    if (name === "TimeoutError" || name === "AbortError") {
-      return fail("MODEL_TIMEOUT", "The model took too long to answer.");
-    }
-    console.error(`agent-estimate fetch error: ${String((err as Error)?.message ?? err).slice(0, 200)}`);
-    return fail("MODEL_UNAVAILABLE", "Could not reach the model.");
+    failure = result.failure;
   }
+
+  if (!raw) return fail("MODEL_UNAVAILABLE", failure);
 
   // --- validate ------------------------------------------------------------
   let parsed: unknown;
