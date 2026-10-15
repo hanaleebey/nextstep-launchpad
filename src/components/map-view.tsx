@@ -1,11 +1,13 @@
 // Map tab: semester overview. Reads LMS data ONLY via getLmsProvider();
 // buffer states and the week timeline come from the deterministic engine.
-import { useState } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useEffect, useState } from "react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { toast } from "sonner";
 import { focusAssignment, useExecuteSession, withOverrides } from "@/lib/session/execute-store";
 import type { LmsStep } from "@/lib/lms";
-import { AlertTriangle, Ban, Check, CheckCircle2, Circle, Square, X, CircleAlert, Inbox, Loader2, RefreshCw, type LucideIcon } from "lucide-react";
-import { getLmsProvider, type Assignment, type Course } from "@/lib/lms";
+import { AlertTriangle, Ban, Check, CheckCircle2, Circle, ListChecks, Square, X, CircleAlert, Inbox, Loader2, RefreshCw, type LucideIcon } from "lucide-react";
+import { getLmsProvider, subscribeLmsDataChanged, syncLmsNow, type Assignment, type Course } from "@/lib/lms";
+import { decomposeAllUnplanned } from "@/lib/agent/decompose-persist";
 import { BUFFER_LABEL, bufferStateFor, computeSlack, daysUntil, remainingMinutes } from "@/lib/engine/buffer";
 import { scheduleWeek, type SchedulableStep } from "@/lib/engine/schedule";
 import type { BufferState } from "@/types/nextstep";
@@ -59,6 +61,35 @@ export function MapView({ onOpen }: { onOpen: () => void }) {
   const { data, isLoading, isError, refetch } = useQuery({ queryKey: ["lms", "map"], queryFn: loadMapData });
   const session = useExecuteSession();
   const [openId, setOpenId] = useState<string | null>(null);
+  const [planning, setPlanning] = useState(false);
+  const [syncing, setSyncing] = useState(false);
+  const qc = useQueryClient();
+
+  // Background Moodle syncs finish after first paint; refetch when they do.
+  useEffect(() => subscribeLmsDataChanged(() => { void qc.invalidateQueries({ queryKey: ["lms"] }); }), [qc]);
+
+  async function planUnplanned(ids?: string[]) {
+    setPlanning(true);
+    try {
+      const types = Object.fromEntries((data?.assignments ?? []).map((a) => [a.lmsAssignmentId, a.itemType]));
+      const r = await decomposeAllUnplanned(types, ids);
+      await qc.invalidateQueries();
+      toast.success(r.assignments ? `Planned ${r.assignments} assignment(s) into ${r.steps} steps.` : "Every assignment already has steps.");
+    } catch (e) {
+      toast.error(`Couldn't plan steps: ${e instanceof Error ? e.message : String(e)}`);
+    } finally { setPlanning(false); }
+  }
+
+  async function syncNow() {
+    setSyncing(true);
+    try {
+      const live = await syncLmsNow();
+      await qc.invalidateQueries();
+      toast.success(live ? "Synced with Moodle." : "Demo data is showing — nothing to sync.");
+    } catch {
+      toast.error("Moodle sync could not finish. Your saved work is unchanged.");
+    } finally { setSyncing(false); }
+  }
 
   if (isLoading) {
     return (
@@ -150,9 +181,21 @@ export function MapView({ onOpen }: { onOpen: () => void }) {
             {data.courses.length} active courses · {upcoming.length} upcoming deadlines · {syncedAgo(data.syncedAt)}
           </p>
         </div>
-        <ul className="map-legend" aria-label="Buffer legend">
-          {(["green", "amber", "red"] as const).map((s) => <li key={s}><BufferChip state={s} /></li>)}
-        </ul>
+        <div style={{ display: "flex", flexWrap: "wrap", gap: 8, alignItems: "center" }}>
+          <button type="button" className="map-btn" onClick={syncNow} disabled={syncing}>
+            {syncing ? <Loader2 size={14} className="map-spin" aria-hidden="true" /> : <RefreshCw size={14} aria-hidden="true" />}
+            {syncing ? "Syncing…" : "Sync with Moodle"}
+          </button>
+          {unplannedCount > 0 && (
+            <button type="button" className="map-btn" onClick={() => planUnplanned()} disabled={planning}>
+              {planning ? <Loader2 size={14} className="map-spin" aria-hidden="true" /> : <ListChecks size={14} aria-hidden="true" />}
+              {planning ? "Planning…" : `Plan all unplanned (${unplannedCount})`}
+            </button>
+          )}
+          <ul className="map-legend" aria-label="Buffer legend">
+            {(["green", "amber", "red"] as const).map((s) => <li key={s}><BufferChip state={s} /></li>)}
+          </ul>
+        </div>
       </header>
 
       <section className="map-stats" aria-label="Summary">

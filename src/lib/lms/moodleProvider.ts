@@ -1,8 +1,31 @@
-import { listAssignments, listCourses, listDetectedItems, listSteps } from "@/lib/db";
+import { listAssignments, listCourses, listDetectedItems, listSteps, logActivity, setStepStatus, updateAssignment } from "@/lib/db";
 import { connectMoodle } from "./moodle-connect";
 import { syncMoodle, type MoodleSyncItem } from "./moodle-sync";
-import { setShowingCachedData } from "./provider-state";
+import { notifyLmsDataChanged, setShowingCachedData } from "./provider-state";
 import type { Assignment, Course, CourseModule, LmsProvider, SiteInfo } from "./types";
+
+/**
+ * When Moodle reports a different real due date than we had saved, the student
+ * "reset" that assignment: clear its progress and set every step back to to-do.
+ * Only dates Moodle itself sets are compared (inferred dates are ignored).
+ */
+async function resetChangedDeadlines(before: Map<string, string | null>, items: MoodleSyncItem[]): Promise<number> {
+  const after = await listAssignments();
+  let reset = 0;
+  for (const a of after) {
+    const item = items.find((i) => i.cmid === a.lms_assignment_id);
+    if (!item?.dueAt || !before.has(a.id)) continue;
+    const old = before.get(a.id);
+    if (old && new Date(old).getTime() === new Date(item.dueAt).getTime()) continue;
+    if (!old) continue; // first time a date appears: nothing to reset
+    const steps = await listSteps(a.id);
+    await Promise.all(steps.filter((s) => s.status !== "todo").map((s) => setStepStatus(s.id, "todo")));
+    await updateAssignment(a.id, { progress_pct: 0, status: "todo" });
+    await logActivity("sync", `Reset progress for "${a.title}" because its due date changed in Moodle.`);
+    reset++;
+  }
+  return reset;
+}
 
 /** Persisted plans are authoritative. A failed Moodle refresh never substitutes demo work. */
 export class MoodleProvider implements LmsProvider {
@@ -22,22 +45,29 @@ export class MoodleProvider implements LmsProvider {
   }
 
   /** Deduplicate refreshes and retry on later reads, not on every assignment request. */
-  refresh(): Promise<void> {
+  refresh(force = false): Promise<void> {
     if (this.refreshing) return this.refreshing;
-    if (this.disposed || Date.now() - this.lastAttempt < this.refreshIntervalMs) return Promise.resolve();
+    if (this.disposed || (!force && Date.now() - this.lastAttempt < this.refreshIntervalMs)) return Promise.resolve();
     this.lastAttempt = Date.now();
     this.refreshing = (async () => {
       try {
+        const before = new Map((await listAssignments()).map((a) => [a.id, a.due_at]));
         const result = await syncMoodle();
         if (this.disposed) return;
         if (result.items.length) this.modules = result.items;
+        await resetChangedDeadlines(before, result.items);
         setShowingCachedData(!result.ok || result.partial);
-      } catch {
+        notifyLmsDataChanged(); // views refetch so new due dates show without reload
+      } catch (e) {
         if (!this.disposed) setShowingCachedData(true);
+        if (force) throw e;
       } finally { this.refreshing = null; }
     })();
     return this.refreshing;
   }
+
+  /** Manual "Sync with Moodle": skip the cooldown and report failures. */
+  syncNow(): Promise<void> { return this.refresh(true); }
 
   async getCourses(): Promise<Course[]> {
     let rows = await listCourses();
