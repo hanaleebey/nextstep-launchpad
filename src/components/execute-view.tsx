@@ -5,6 +5,7 @@ import { useEffect, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { runReplan } from "@/lib/agent/replan";
+import { setStepStatus, updateAssignment } from "@/lib/db";
 import { AlertTriangle, Check, CircleCheckBig, Hand, Loader2, Pause, Play, Square } from "lucide-react";
 import { loadMapData, BufferChip } from "@/components/map-view";
 import { bufferStateFor, computeSlack, daysUntil, remainingMinutes, BUFFER_LABEL } from "@/lib/engine/buffer";
@@ -67,7 +68,10 @@ export function ExecuteView() {
     })
     .sort((x, y) => x.slack - y.slack);
 
-  const current = ranked.find((r) => r.steps.some((s) => s.status === "todo"));
+  // A focus chosen from Map's "Open" panel wins while it still has todo steps.
+  const hasTodo = (r: (typeof ranked)[number]) => r.steps.some((s) => s.status === "todo");
+  const focused = ranked.find((r) => r.a.lmsAssignmentId === session.focusAssignmentId && hasTodo(r));
+  const current = focused ?? ranked.find(hasTodo);
 
   // Session stats.
   const focusSec = session.finished.reduce((s, f) => s + f.elapsedSeconds, 0);
@@ -85,9 +89,11 @@ export function ExecuteView() {
     .filter((x) => !(x.r === current && x.s.orderIndex === step.orderIndex))
     .slice(0, 2);
 
-  const why =
-    `${current.a.title} is your most urgent assignment — due ${fmtDue(current.a.dueAt, current.days)}, ` +
-    `buffer "${BUFFER_LABEL[current.state]}". This is its first unfinished step.`;
+  const why = focused
+    ? `You chose ${current.a.title} from the Map — due ${fmtDue(current.a.dueAt, current.days)}, buffer "${BUFFER_LABEL[current.state]}". This is its first unfinished step.`
+    : `${current.a.title} is your most urgent assignment — due ${fmtDue(current.a.dueAt, current.days)}, ` +
+      `buffer "${BUFFER_LABEL[current.state]}". This is its first unfinished step.`;
+  const stepIds = current.steps.map((s) => s.id);
 
   return (
     <div className="exec-grid">
@@ -108,6 +114,8 @@ export function ExecuteView() {
         onSuspect={(sample) => setPending({ lmsAssignmentId: current.a.lmsAssignmentId, sample })}
         key={stepKey(current.a.lmsAssignmentId, step.orderIndex)}
         stepId={stepKey(current.a.lmsAssignmentId, step.orderIndex)}
+        dbStepId={step.id}
+        progressAfter={stepIds.length ? Math.round(((current.steps.filter((s) => s.status !== "todo").length + 1) / stepIds.length) * 100) : 0}
         context={`${code.get(current.a.lmsCourseId)} · ${current.a.title} · step ${step.orderIndex + 1} of ${current.steps.length}`}
         title={step.title}
         criteria={step.doneCriteria}
@@ -154,7 +162,7 @@ export function ExecuteView() {
 }
 
 function ActionCard(props: {
-  stepId: string; lmsAssignmentId: string; itemType: string; onSuspect: (s: Sample) => void; context: string; title: string; criteria: string[]; timeboxMinutes: number; why: string;
+  stepId: string; dbStepId?: string | undefined; progressAfter: number; lmsAssignmentId: string; itemType: string; onSuspect: (s: Sample) => void; context: string; title: string; criteria: string[]; timeboxMinutes: number; why: string;
 }) {
   const total = props.timeboxMinutes * 60;
   const [elapsed, setElapsed] = useState(0);
@@ -188,6 +196,15 @@ function ActionCard(props: {
       }
     }
     finishStep({ key: props.stepId, status, elapsedSeconds: elapsed, timeboxSeconds: total });
+    // Persisted (Moodle) steps: save the status and progress so Map and reloads see it.
+    if (props.dbStepId) {
+      Promise.all([
+        setStepStatus(props.dbStepId, status),
+        updateAssignment(props.lmsAssignmentId, { progress_pct: Math.min(100, props.progressAfter) }),
+      ])
+        .then(() => queryClient.invalidateQueries({ queryKey: ["lms"] }))
+        .catch((e) => toast.error(`Couldn't save this step: ${e instanceof Error ? e.message : String(e)}`));
+    }
     // A blocked step triggers a re-plan: buffers are recomputed, steps are
     // moved into free time, and a summary lands in the activity log.
     if (status === "blocked") {

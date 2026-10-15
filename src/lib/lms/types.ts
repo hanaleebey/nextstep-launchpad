@@ -18,6 +18,8 @@ export type LmsStepStatus = "todo" | "done" | "blocked" | "stopped";
 
 /** A suggested step that comes with an assignment (used as decomposition seed). */
 export interface LmsStep {
+  /** Database step id when the step is persisted (Moodle); absent for demo data. */
+  id?: string;
   orderIndex: number;
   title: string;
   timeboxMinutes: number;
