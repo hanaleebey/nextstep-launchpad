@@ -181,9 +181,21 @@ export function MapView({ onOpen }: { onOpen: () => void }) {
             {data.courses.length} active courses · {upcoming.length} upcoming deadlines · {syncedAgo(data.syncedAt)}
           </p>
         </div>
-        <ul className="map-legend" aria-label="Buffer legend">
-          {(["green", "amber", "red"] as const).map((s) => <li key={s}><BufferChip state={s} /></li>)}
-        </ul>
+        <div style={{ display: "flex", flexWrap: "wrap", gap: 8, alignItems: "center" }}>
+          <button type="button" className="map-btn" onClick={syncNow} disabled={syncing}>
+            {syncing ? <Loader2 size={14} className="map-spin" aria-hidden="true" /> : <RefreshCw size={14} aria-hidden="true" />}
+            {syncing ? "Syncing…" : "Sync with Moodle"}
+          </button>
+          {unplannedCount > 0 && (
+            <button type="button" className="map-btn" onClick={() => planUnplanned()} disabled={planning}>
+              {planning ? <Loader2 size={14} className="map-spin" aria-hidden="true" /> : <ListChecks size={14} aria-hidden="true" />}
+              {planning ? "Planning…" : `Plan all unplanned (${unplannedCount})`}
+            </button>
+          )}
+          <ul className="map-legend" aria-label="Buffer legend">
+            {(["green", "amber", "red"] as const).map((s) => <li key={s}><BufferChip state={s} /></li>)}
+          </ul>
+        </div>
       </header>
 
       <section className="map-stats" aria-label="Summary">
