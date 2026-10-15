@@ -39,6 +39,8 @@ export interface PlanInfo {
   description?: string | undefined;
 }
 
+const AI_TIMEOUT_MS = 40_000;
+
 /** The real reason the last AI planning attempt failed (shown in the UI). */
 export let lastAiError: string | null = null;
 
