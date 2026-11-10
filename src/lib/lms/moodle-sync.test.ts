@@ -1,10 +1,18 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { syncMoodle } from "./moodle-sync";
 import { clearProviderState, getProviderState } from "./provider-state";
-const mocks = vi.hoisted(() => ({ invoke: vi.fn() }));
-vi.mock("@/integrations/supabase/client", () => ({ supabase: { functions: { invoke: mocks.invoke } } }));
-beforeEach(() => { vi.clearAllMocks(); clearProviderState(); });
+const mocks = vi.hoisted(() => ({ invoke: vi.fn(), getSession: vi.fn(), refreshSession: vi.fn() }));
+vi.mock("@/integrations/supabase/client", () => ({ supabase: { functions: { invoke: mocks.invoke }, auth: { getSession: mocks.getSession, refreshSession: mocks.refreshSession } } }));
+beforeEach(() => {
+  vi.clearAllMocks(); clearProviderState();
+  mocks.getSession.mockResolvedValue({ data: { session: { access_token: "a.b.c", expires_at: Math.floor(Date.now() / 1000) + 3600 } } });
+});
 describe("sync transport", () => {
+  it("does not call the function when signed out", async () => {
+    mocks.getSession.mockResolvedValue({ data: { session: null } });
+    await expect(syncMoodle()).rejects.toThrow("previously saved work is unchanged");
+    expect(mocks.invoke).not.toHaveBeenCalled();
+  });
   it("uses the Edge Function and handles a partial reply", async () => {
     mocks.invoke.mockResolvedValue({ data: { ok: true, partial: true, summary: { courses: 1, assignments: 2, items: 2 }, items: [], warnings: [] }, error: null });
     expect((await syncMoodle()).partial).toBe(true);
