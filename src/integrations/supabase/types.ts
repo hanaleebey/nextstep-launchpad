@@ -419,7 +419,23 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
+      complete_step: {
+        Args: { _status: string; _step_id: string }
+        Returns: {
+          assignment_id: string
+          progress_pct: number
+          status: string
+        }[]
+      }
+      mark_assignment_done: {
+        Args: { _assignment_id: string }
+        Returns: undefined
+      }
       owns_assignment: { Args: { _assignment_id: string }; Returns: boolean }
+      reopen_assignment: {
+        Args: { _assignment_id: string }
+        Returns: undefined
+      }
     }
     Enums: {
       [_ in never]: never
