@@ -24,7 +24,7 @@ export interface DecomposeInput {
   estimatedMinutes: number | null;
   dueAt: string | null;
   /** Moodle description (HTML is fine); used to spot empty announcements. */
-  description?: string | null;
+  description?: string | null | undefined;
 }
 
 export interface DecomposedStep {

@@ -26,7 +26,7 @@ export async function persistEstimate(assignmentId: string, itemType: string, re
   if (!assignment) return;
   // Save steps whenever a result carries them — AI-refined plans, and the
   // fixed one-step plan an empty announcement gets without a model call.
-  if (result.steps?.length) {
+  if ("steps" in result && result.steps?.length) {
     await saveGeneratedSteps(assignmentId, assignment.title, result.steps, refined ? "ai" : "fallback");
   }
   if (assignment.estimated_is_manual) return;

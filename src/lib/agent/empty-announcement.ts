@@ -49,8 +49,8 @@ export function isAnnouncementType(type: string | null | undefined, title: strin
 /** The one rule every planning path shares: announcement type AND empty text. */
 export function isEmptyAnnouncement(a: {
   title: string;
-  type?: string | null;
-  description?: string | null;
+  type?: string | null | undefined;
+  description?: string | null | undefined;
 }): boolean {
   return isAnnouncementType(a.type, a.title) && isBlankDescription(a.description);
 }
