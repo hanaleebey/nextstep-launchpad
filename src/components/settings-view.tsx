@@ -4,13 +4,14 @@
 import { useEffect, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
-import { Loader2, RefreshCw, Unplug } from "lucide-react";
+import { Eye, EyeOff, Loader2, RefreshCw, Unplug } from "lucide-react";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import {
   ensureDefaultSettings, getLmsConnection, getSettings, listCalibrationMultipliers,
-  removeLmsConnection, resetAllAppData, resetCalibration, saveSettings,
+  removeLmsConnection, resetAllAppData, resetCalibration, saveDisplayName, saveSettings,
 } from "@/lib/db";
+import { DISPLAY_NAME_MAX, accountName, normaliseDisplayName } from "@/lib/display-name";
 import { resetLmsProvider, syncLmsNow } from "@/lib/lms";
 import { getProviderState, setUseDemoData } from "@/lib/lms/provider-state";
 import { Switch } from "@/components/ui/switch";
@@ -76,7 +77,7 @@ export function SettingsView({ email }: { email: string }) {
       </header>
 
       <div className="settings-grid">
-        <AccountCard email={email} onSignOut={async () => {
+        <AccountCard email={email} settingsQ={settingsQ} onSignOut={async () => {
           await queryClient.cancelQueries();
           queryClient.clear();
           await supabase.auth.signOut();
@@ -116,15 +117,264 @@ function useSaveSettings(queryClient: ReturnType<typeof useQueryClient>) {
 }
 
 // ---------- A. Account ----------
-function AccountCard({ email, onSignOut }: { email: string; onSignOut: () => Promise<void> }) {
+
+/** New-email validation. Returns an inline error message, or null when valid. */
+export function validateNewEmail(newEmail: string, currentEmail: string): string | null {
+  const next = newEmail.trim();
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(next)) return "Enter a valid email address.";
+  if (next.toLowerCase() === currentEmail.trim().toLowerCase()) return "That's already your current email.";
+  return null;
+}
+
+/**
+ * New-password validation. Returns inline errors keyed by field; an empty
+ * object means valid. Rules: new ≠ current, minimum 8 characters, confirm
+ * must match.
+ */
+export function validateNewPassword(
+  current: string, next: string, confirm: string,
+): { next?: string; confirm?: string } {
+  const errors: { next?: string; confirm?: string } = {};
+  if (next.length < 8) errors.next = "Use at least 8 characters.";
+  else if (next === current) errors.next = "New password must be different from your current one.";
+  if (confirm !== next) errors.confirm = "Passwords don't match.";
+  return errors;
+}
+
+/** Map a Supabase updateUser email error to a plain message. */
+function emailChangeError(message: string): string {
+  const m = message.toLowerCase();
+  if (m.includes("already registered") || m.includes("already in use") || m.includes("been registered"))
+    return "That email is already registered to another account.";
+  if (m.includes("rate limit") || m.includes("too many requests"))
+    return "Too many attempts — wait a minute and try again.";
+  if (m.includes("invalid") || m.includes("unable to validate")) return "That email address doesn't look valid.";
+  return "Couldn't change your email — try again.";
+}
+
+/**
+ * Re-authenticate with the current password before a credential change.
+ * Returns true when the password checked out. The password is used for this
+ * call only — never stored, logged or sent anywhere else.
+ */
+async function verifyCurrentPassword(email: string, password: string): Promise<boolean> {
+  const { error } = await supabase.auth.signInWithPassword({ email, password });
+  return !error;
+}
+
+function AccountCard({
+  email, settingsQ, onSignOut,
+}: { email: string; settingsQ: SettingsQuery; onSignOut: () => Promise<void> }) {
+  const queryClient = useQueryClient();
   const [busy, setBusy] = useState(false);
+
+  // --- display name ---
+  const savedName = settingsQ.data?.display_name ?? "";
+  const [name, setName] = useState(savedName);
+  const [nameSaving, setNameSaving] = useState(false);
+  useEffect(() => { setName(settingsQ.data?.display_name ?? ""); }, [settingsQ.data?.display_name]);
+  const nameDirty = normaliseDisplayName(name) !== normaliseDisplayName(savedName);
+
+  async function saveName() {
+    setNameSaving(true);
+    try {
+      const clean = normaliseDisplayName(name);
+      await saveDisplayName(clean || null); // empty means "use the fallback"
+      setName(clean);
+      await queryClient.invalidateQueries({ queryKey: ["settings"] });
+      toast.success(clean ? "Name saved" : "Name cleared — your email will show instead");
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Couldn't save your name");
+    } finally {
+      setNameSaving(false);
+    }
+  }
+
+  // --- email change ---
+  const [emailOpen, setEmailOpen] = useState(false);
+  const [newEmail, setNewEmail] = useState("");
+  const [emailPw, setEmailPw] = useState("");
+  const [emailPwShown, setEmailPwShown] = useState(false);
+  const [emailErr, setEmailErr] = useState<string | null>(null);
+  const [emailPwErr, setEmailPwErr] = useState<string | null>(null);
+  const [emailBusy, setEmailBusy] = useState(false);
+  const [emailPending, setEmailPending] = useState(false);
+
+  async function submitEmailChange() {
+    const formatErr = validateNewEmail(newEmail, email);
+    setEmailErr(formatErr);
+    setEmailPwErr(null);
+    if (formatErr) return;
+    setEmailBusy(true);
+    try {
+      if (!(await verifyCurrentPassword(email, emailPw))) {
+        setEmailPwErr("Current password is incorrect");
+        return;
+      }
+      const { error } = await supabase.auth.updateUser({ email: newEmail.trim() });
+      if (error) {
+        setEmailErr(emailChangeError(error.message));
+        return;
+      }
+      setEmailPending(true);
+      setEmailOpen(false);
+      setNewEmail("");
+      setEmailPw("");
+    } finally {
+      setEmailBusy(false);
+    }
+  }
+
+  // --- password change ---
+  const [pwOpen, setPwOpen] = useState(false);
+  const [curPw, setCurPw] = useState("");
+  const [nextPw, setNextPw] = useState("");
+  const [confirmPw, setConfirmPw] = useState("");
+  const [shown, setShown] = useState({ cur: false, next: false, confirm: false });
+  const [pwErrors, setPwErrors] = useState<{ cur?: string | undefined; next?: string | undefined; confirm?: string | undefined }>({});
+  const [pwBusy, setPwBusy] = useState(false);
+  const [pwChanged, setPwChanged] = useState(false);
+
+  // Passwords live only in this component's state; clear them on unmount.
+  useEffect(() => () => {
+    setEmailPw(""); setCurPw(""); setNextPw(""); setConfirmPw("");
+  }, []);
+
+  async function submitPasswordChange() {
+    const errors = validateNewPassword(curPw, nextPw, confirmPw);
+    setPwErrors(errors);
+    if (Object.keys(errors).length > 0) return;
+    setPwBusy(true);
+    try {
+      if (!(await verifyCurrentPassword(email, curPw))) {
+        setPwErrors({ cur: "Current password is incorrect" });
+        return;
+      }
+      const { error } = await supabase.auth.updateUser({ password: nextPw });
+      if (error) {
+        setPwErrors({ next: error.message.toLowerCase().includes("same")
+          ? "New password must be different from your current one."
+          : "Couldn't update your password — try again." });
+        return;
+      }
+      toast.success("Password updated");
+      setCurPw(""); setNextPw(""); setConfirmPw("");
+      setPwOpen(false);
+      setPwChanged(true);
+    } finally {
+      setPwBusy(false);
+    }
+  }
+
+  async function signOutOthers() {
+    setPwBusy(true);
+    try {
+      await supabase.auth.signOut({ scope: "others" });
+      toast.success("Signed out of your other sessions");
+      setPwChanged(false);
+    } catch {
+      toast.error("Couldn't sign out other sessions — try again.");
+    } finally {
+      setPwBusy(false);
+    }
+  }
+
   return (
     <section className="map-card" aria-labelledby="account-title">
       <h2 id="account-title">Account</h2>
-      <div className="settings-form">
+      <div className="settings-form" style={{ gridTemplateColumns: "1fr" }}>
+        <label htmlFor="display-name">Your name
+          <input id="display-name" type="text" value={name} maxLength={DISPLAY_NAME_MAX}
+            placeholder={accountName(null, email)} autoComplete="name"
+            onChange={(e) => setName(e.target.value)} />
+        </label>
+        <p className="map-sub" style={{ marginTop: -8 }}>
+          Shown in the top bar. Leave empty to use your email instead.
+        </p>
+        <div>
+          <button type="button" className="exec-btn behind-accept" disabled={!nameDirty || nameSaving}
+            onClick={saveName}>
+            {nameSaving ? "Saving…" : "Save name"}
+          </button>
+        </div>
+
         <label>Signed in as
           <input type="text" value={email} readOnly aria-readonly="true" />
         </label>
+        {emailPending && (
+          <p className="map-sub" role="status">
+            Confirmation sent. Check both inboxes — the change takes effect after you confirm from the new address.
+          </p>
+        )}
+        {emailOpen ? (
+          <div className="settings-form" style={{ gridTemplateColumns: "1fr" }} role="group" aria-label="Change email">
+            <label htmlFor="new-email">New email
+              <input id="new-email" type="email" value={newEmail} autoComplete="email"
+                onChange={(e) => { setNewEmail(e.target.value); setEmailErr(null); }}
+                aria-invalid={!!emailErr} aria-describedby={emailErr ? "new-email-err" : undefined} />
+            </label>
+            {emailErr && <p className="field-error" id="new-email-err" role="alert">{emailErr}</p>}
+            <PasswordInput id="email-current-pw" label="Current password" value={emailPw}
+              shown={emailPwShown} onToggle={() => setEmailPwShown((s) => !s)}
+              onChange={(v) => { setEmailPw(v); setEmailPwErr(null); }}
+              error={emailPwErr} errorId="email-pw-err" autoComplete="current-password" />
+            <div className="exec-actions">
+              <button type="button" className="exec-btn behind-accept" disabled={emailBusy || !newEmail || !emailPw}
+                onClick={submitEmailChange}>
+                {emailBusy ? "Checking…" : "Change email"}
+              </button>
+              <button type="button" className="exec-btn exec-stopped" disabled={emailBusy}
+                onClick={() => { setEmailOpen(false); setNewEmail(""); setEmailPw(""); setEmailErr(null); setEmailPwErr(null); }}>
+                Cancel
+              </button>
+            </div>
+          </div>
+        ) : (
+          <div>
+            <button type="button" className="exec-btn exec-stopped" onClick={() => setEmailOpen(true)}>
+              Change email
+            </button>
+          </div>
+        )}
+
+        {pwOpen ? (
+          <div className="settings-form" style={{ gridTemplateColumns: "1fr" }} role="group" aria-label="Change password">
+            <PasswordInput id="cur-pw" label="Current password" value={curPw}
+              shown={shown.cur} onToggle={() => setShown((s) => ({ ...s, cur: !s.cur }))}
+              onChange={(v) => { setCurPw(v); setPwErrors((e) => ({ ...e, cur: undefined })); }}
+              error={pwErrors.cur} errorId="cur-pw-err" autoComplete="current-password" />
+            <PasswordInput id="next-pw" label="New password" value={nextPw}
+              shown={shown.next} onToggle={() => setShown((s) => ({ ...s, next: !s.next }))}
+              onChange={(v) => { setNextPw(v); setPwErrors((e) => ({ ...e, next: undefined })); }}
+              error={pwErrors.next} errorId="next-pw-err" autoComplete="new-password" />
+            <PasswordInput id="confirm-pw" label="Confirm new password" value={confirmPw}
+              shown={shown.confirm} onToggle={() => setShown((s) => ({ ...s, confirm: !s.confirm }))}
+              onChange={(v) => { setConfirmPw(v); setPwErrors((e) => ({ ...e, confirm: undefined })); }}
+              error={pwErrors.confirm} errorId="confirm-pw-err" autoComplete="new-password" />
+            <div className="exec-actions">
+              <button type="button" className="exec-btn behind-accept"
+                disabled={pwBusy || !curPw || !nextPw || !confirmPw}
+                onClick={submitPasswordChange}>
+                {pwBusy ? "Updating…" : "Update password"}
+              </button>
+              <button type="button" className="exec-btn exec-stopped" disabled={pwBusy}
+                onClick={() => { setPwOpen(false); setCurPw(""); setNextPw(""); setConfirmPw(""); setPwErrors({}); }}>
+                Cancel
+              </button>
+            </div>
+          </div>
+        ) : (
+          <div className="exec-actions">
+            <button type="button" className="exec-btn exec-stopped" onClick={() => { setPwOpen(true); setPwChanged(false); }}>
+              Change password
+            </button>
+            {pwChanged && (
+              <button type="button" className="exec-btn exec-stopped" disabled={pwBusy} onClick={signOutOthers}>
+                Sign out other sessions
+              </button>
+            )}
+          </div>
+        )}
       </div>
       <div style={{ marginTop: 12 }}>
         <button type="button" className="exec-btn exec-stopped" disabled={busy}
@@ -133,6 +383,32 @@ function AccountCard({ email, onSignOut }: { email: string; onSignOut: () => Pro
         </button>
       </div>
     </section>
+  );
+}
+
+/** Password field with a show/hide toggle and an inline error slot. */
+function PasswordInput({
+  id, label, value, shown, onToggle, onChange, error, errorId, autoComplete,
+}: {
+  id: string; label: string; value: string; shown: boolean; onToggle: () => void;
+  onChange: (v: string) => void; error?: string | null | undefined; errorId: string; autoComplete: string;
+}) {
+  return (
+    <div>
+      <label htmlFor={id}>{label}
+        <span className="password-field">
+          <input id={id} type={shown ? "text" : "password"} value={value} autoComplete={autoComplete}
+            onChange={(e) => onChange(e.target.value)}
+            aria-invalid={!!error} aria-describedby={error ? errorId : undefined} />
+          <button type="button" className="password-toggle" onClick={onToggle}
+            aria-label={shown ? `Hide ${label.toLowerCase()}` : `Show ${label.toLowerCase()}`}
+            aria-pressed={shown}>
+            {shown ? <EyeOff size={16} aria-hidden="true" /> : <Eye size={16} aria-hidden="true" />}
+          </button>
+        </span>
+      </label>
+      {error && <p className="field-error" id={errorId} role="alert">{error}</p>}
+    </div>
   );
 }
 

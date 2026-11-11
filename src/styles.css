@@ -185,7 +185,7 @@
 .status-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--muted); }
 .connection-status.is-connected { color: var(--green); background: var(--green-bg); }
 .shell-email { max-width: 150px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.user-avatar { display: grid; place-items: center; width: 34px; height: 34px; border-radius: 50%; background: var(--avatar-bg); color: var(--muted); }
+.user-avatar { display: grid; place-items: center; width: 34px; height: 34px; border-radius: 50%; background: var(--avatar-bg); color: var(--muted); font-size: .8rem; font-weight: 700; letter-spacing: .02em; }
 .shell-container { max-width: 1240px; padding: 0 24px 64px; margin: 0 auto; }
 .shell-container [role="tabpanel"] { margin-top: 0; }
 .lms-source-bar { display: flex; align-items: center; flex-wrap: wrap; gap: 16px; padding-top: 16px; }
@@ -395,6 +395,13 @@
 .settings-form label { display: grid; gap: 6px; font-size: .85rem; font-weight: 600; color: var(--ink); }
 .settings-form input, .settings-form select { height: 40px; padding: 0 12px; border: 1px solid var(--border); border-radius: 10px; background: var(--surface); color: var(--ink); font-weight: 400; }
 .settings-form input:focus-visible, .settings-form select:focus-visible { outline: 2px solid var(--primary); outline-offset: 1px; }
+.settings-form input[aria-invalid="true"] { border-color: var(--red); }
+.field-error { margin: 4px 0 0; font-size: .8rem; color: var(--red); }
+.password-field { position: relative; display: block; }
+.password-field input { width: 100%; padding-right: 40px; }
+.password-toggle { position: absolute; right: 4px; top: 50%; transform: translateY(-50%); display: grid; place-items: center; width: 32px; height: 32px; border: 0; border-radius: 8px; background: transparent; color: var(--muted); cursor: pointer; }
+.password-toggle:hover { color: var(--ink); }
+.password-toggle:focus-visible { outline: 2px solid var(--primary); outline-offset: 1px; }
 .settings-panel-head { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 12px; margin-bottom: 12px; }
 .settings-panel-head h2 { margin-bottom: 0; }
 .settings-table-wrap { overflow-x: auto; }

@@ -8,7 +8,7 @@ import { resetLmsProvider } from "@/lib/lms";
 import { setShowingCachedData } from "@/lib/lms/provider-state";
 
 const mocks = vi.hoisted(() => ({ connection: vi.fn(), navigate: vi.fn() }));
-vi.mock("@/lib/db", () => ({ getLmsConnection: mocks.connection }));
+vi.mock("@/lib/db", () => ({ getLmsConnection: mocks.connection, getSettings: vi.fn(async () => null) }));
 vi.mock("@tanstack/react-router", () => ({ useNavigate: () => mocks.navigate }));
 vi.mock("@/integrations/supabase/client", () => ({ supabase: { auth: { signOut: vi.fn() } } }));
 vi.mock("@/components/map-view", () => ({ MapView: () => <h1>Semester map</h1> }));

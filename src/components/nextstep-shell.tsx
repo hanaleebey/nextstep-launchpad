@@ -1,8 +1,9 @@
-import { Cable, CheckCircle2, CloudOff, Clock3, LogOut, Map, Play, Settings, UserRound } from "lucide-react";
+import { Cable, CheckCircle2, CloudOff, Clock3, LogOut, Map, Play, Settings } from "lucide-react";
 import { useNavigate } from "@tanstack/react-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
-import { getLmsConnection } from "@/lib/db";
+import { getLmsConnection, getSettings } from "@/lib/db";
+import { accountName, avatarInitials } from "@/lib/display-name";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { PlaceholderPanel } from "@/components/placeholder-panel";
 import { MapView } from "@/components/map-view";
@@ -36,6 +37,9 @@ export function NextStepShell({
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const connection = useQuery({ queryKey: ["lms-connection"], queryFn: getLmsConnection });
+  // Same query key as the Settings page, so a saved name shows up here at once.
+  const settings = useQuery({ queryKey: ["settings"], queryFn: getSettings });
+  const displayName = settings.data?.display_name ?? null;
   const providerState = useSyncExternalStore(subscribeProviderState, getProviderState, getServerProviderState);
   useEffect(() => {
     loadDemoPreference(email);
@@ -115,10 +119,10 @@ export function NextStepShell({
             {connection.isPending ? "Checking…" : connection.data?.site_url ? "Connected" : "Not connected"}
           </Button>
           <span className="shell-email text-sm text-muted-foreground" title={email}>
-            {email}
+            {accountName(displayName, email)}
           </span>
-          <div className="user-avatar" role="img" aria-label={`Signed in as ${email}`}>
-            <UserRound size={17} strokeWidth={1.8} aria-hidden="true" />
+          <div className="user-avatar" role="img" aria-label={`Signed in as ${accountName(displayName, email)}`}>
+            <span aria-hidden="true">{avatarInitials(displayName, email)}</span>
           </div>
           <Button
             type="button"

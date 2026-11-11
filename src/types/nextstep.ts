@@ -12,6 +12,7 @@ export type EstimateSource = "signal" | "allocated" | "manual";
 
 export interface UserSettings {
   user_id: string;
+  display_name: string | null; // optional; empty means "use the email local-part"
   weekly_available_hours: number;
   timezone: string;
   default_timebox_minutes: number; // step length used when a step has no timebox

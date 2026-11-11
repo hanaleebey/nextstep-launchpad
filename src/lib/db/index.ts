@@ -41,6 +41,17 @@ export async function ensureDefaultSettings(): Promise<void> {
   const user_id = await currentUserId();
   unwrap(await db.from("users_settings").upsert({ user_id }, { onConflict: "user_id", ignoreDuplicates: true }));
 }
+/** Read the signed-in user's display name (null means "use the email fallback"). */
+export async function getDisplayName(): Promise<string | null> {
+  const row = unwrap(await db.from("users_settings").select("display_name").maybeSingle()) as
+    { display_name: string | null } | null;
+  return row?.display_name ?? null;
+}
+/** Save the display name. Pass null (or an empty string) to clear it. */
+export async function saveDisplayName(name: string | null): Promise<void> {
+  const user_id = await currentUserId();
+  unwrap(await db.from("users_settings").upsert({ user_id, display_name: name || null }).select().single());
+}
 
 // ---------- calibration_multipliers ----------
 export interface CalibrationRow {

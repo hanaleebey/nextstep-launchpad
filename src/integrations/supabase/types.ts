@@ -348,6 +348,7 @@ export type Database = {
           auto_plan_new_items: boolean
           created_at: string
           default_timebox_minutes: number
+          display_name: string | null
           timezone: string
           updated_at: string
           user_id: string
@@ -357,6 +358,7 @@ export type Database = {
           auto_plan_new_items?: boolean
           created_at?: string
           default_timebox_minutes?: number
+          display_name?: string | null
           timezone?: string
           updated_at?: string
           user_id: string
@@ -366,6 +368,7 @@ export type Database = {
           auto_plan_new_items?: boolean
           created_at?: string
           default_timebox_minutes?: number
+          display_name?: string | null
           timezone?: string
           updated_at?: string
           user_id?: string
