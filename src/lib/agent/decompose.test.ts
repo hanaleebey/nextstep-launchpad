@@ -8,7 +8,10 @@ describe("decompose", () => {
   for (const type of ["paper", "quiz", "reading", "discussion", "project"]) {
     it(`${type}: 4–8 steps, valid timeboxes and checklists`, () => {
       for (const minutes of [60, 90, 180, 300, 600]) {
-        const steps = decompose({ ...base, type, estimatedMinutes: minutes });
+        // Discussions need real text: an empty one is an empty announcement
+        // and correctly gets a single "View announcement" step instead.
+        const description = type === "discussion" ? "Reply to two classmates about the reading." : undefined;
+        const steps = decompose({ ...base, type, estimatedMinutes: minutes, description });
         expect(steps.length).toBeGreaterThanOrEqual(4);
         expect(steps.length).toBeLessThanOrEqual(8);
         steps.forEach((s, i) => {

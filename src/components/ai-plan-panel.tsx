@@ -9,6 +9,8 @@ import { toast } from "sonner";
 import { createAssignment, listAssignments, listSteps } from "@/lib/db";
 import { planAssignment } from "@/lib/agent/agent-estimate-client";
 import { hasNoSchedulableSteps, saveGeneratedSteps } from "@/lib/agent/ai-steps-persist";
+import { emptyAnnouncementEstimate, isEmptyAnnouncement } from "@/lib/agent/empty-announcement";
+import { persistEstimate } from "@/lib/agent/persist-estimate";
 import type { DecomposedStep } from "@/lib/agent/decompose";
 import type { Assignment } from "@/types/nextstep";
 
@@ -47,8 +49,12 @@ export function AiPlanPanel() {
         description: extra,
       });
       await saveGeneratedSteps(a.id, a.title, r.steps, r.source);
+      // An empty announcement also gets its fixed 5-minute estimate logged.
+      if (isEmptyAnnouncement({ title: a.title, type: kind, description: extra })) {
+        await persistEstimate(a.id, kind, emptyAnnouncementEstimate());
+      }
       setResult({ title: a.title, ...r });
-      if (r.source === "fallback") toast.warning(`AI unavailable (${r.note}). Used the built-in planner instead.`);
+      if (r.source === "fallback" && r.note) toast.warning(`AI unavailable (${r.note}). Used the built-in planner instead.`);
       else toast.success(`Planned "${a.title}" in ${r.steps.length} steps`);
       await qc.invalidateQueries();
     } catch (e) {
@@ -156,7 +162,8 @@ export function AiPlanPanel() {
             ) : (
               <AlertTriangle size={14} aria-hidden="true" style={{ display: "inline" }} />
             )}{" "}
-            {result.source === "ai" ? "AI plan" : "Built-in plan (AI unavailable)"} for <strong>{result.title}</strong>{" "}
+            {result.source === "ai" ? "AI plan" : result.note ? "Built-in plan (AI unavailable)" : "Built-in plan"} for{" "}
+            <strong>{result.title}</strong>{" "}
             · {result.steps.length} steps · about {total} min
           </p>
           <ol style={{ paddingLeft: 20, listStyle: "decimal" }}>

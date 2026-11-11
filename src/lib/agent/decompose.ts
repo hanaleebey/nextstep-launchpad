@@ -13,6 +13,8 @@
 //   3. Split the estimated total across those steps by each step's weight,
 //      round to 5 minutes, and clamp each one to 15–50 minutes.
 
+import { emptyAnnouncementPlan, isEmptyAnnouncement } from "./empty-announcement";
+
 export type DecomposeType = "paper" | "quiz" | "reading" | "discussion" | "project" | "video";
 
 export interface DecomposeInput {
@@ -21,6 +23,8 @@ export interface DecomposeInput {
   type: string;
   estimatedMinutes: number | null;
   dueAt: string | null;
+  /** Moodle description (HTML is fine); used to spot empty announcements. */
+  description?: string | null;
 }
 
 export interface DecomposedStep {
@@ -216,6 +220,10 @@ function decomposeShort(input: DecomposeInput, type: DecomposeType, total: numbe
  * the total exactly because of the 15–50 limits; we stay as close as allowed.
  */
 export function decompose(input: DecomposeInput): DecomposedStep[] {
+  // An empty announcement is always exactly one step, on every planning path.
+  if (isEmptyAnnouncement({ title: input.title, type: input.type, description: input.description })) {
+    return emptyAnnouncementPlan();
+  }
   const total = input.estimatedMinutes && input.estimatedMinutes > 0 ? input.estimatedMinutes : DEFAULT_TOTAL_MINUTES;
   const type = normaliseType(input.type);
   if (BOUNDED.includes(type) && total < SHORT_TASK_LIMIT) return decomposeShort(input, type, Math.round(total));

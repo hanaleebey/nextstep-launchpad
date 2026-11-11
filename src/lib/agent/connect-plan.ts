@@ -45,6 +45,7 @@ export async function prepareConnectPlan(items: DetectedItem[], rebuildId?: stri
         type: item.item_type,
         estimatedMinutes: item.estimated_minutes,
         dueAt: assignment.due_at,
+        description: item.details ?? undefined,
       };
       const planned = await tailoredSteps(input, item.details ?? undefined);
       if (!planned) {

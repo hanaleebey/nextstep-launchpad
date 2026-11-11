@@ -16,6 +16,7 @@
 //   Exception: a quiz time limit alone is high (see above).
 
 import type { Confidence } from "@/types/nextstep";
+import { EMPTY_ANNOUNCEMENT_MINUTES, emptyAnnouncementPlan, isEmptyAnnouncement } from "./empty-announcement";
 
 export interface EstimateResult {
   minutes: number;
@@ -250,6 +251,17 @@ type RefineFn = (p: import("./agent-estimate-client").RefinePayload) =>
  * the pure functions above never pull in network code.
  */
 export async function refineEstimate(base: EstimateResult, ctx: RefineContext, refineFn?: RefineFn): Promise<RefinedEstimate> {
+  // Empty announcement: fixed 5-minute read with one step — never worth a
+  // model call, and the same on every planning path.
+  if (isEmptyAnnouncement({ title: ctx.title, type: ctx.type, description: ctx.introHtml })) {
+    return {
+      minutes: EMPTY_ANNOUNCEMENT_MINUTES,
+      confidence: "high",
+      signals: [...base.signals, "empty announcement — reading it is the whole task"],
+      aiRefined: false,
+      steps: emptyAnnouncementPlan(),
+    };
+  }
   const keep: RefinedEstimate = { ...base, aiRefined: false, steps: null };
   if (!shouldRefine(base, ctx)) return keep;
   try {

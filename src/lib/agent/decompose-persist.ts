@@ -6,6 +6,8 @@ import { decompose, type DecomposedStep, type DecomposeInput } from "./decompose
 import { planAssignment } from "./agent-estimate-client";
 import { stripHtml } from "./estimate";
 import { recomputeBufferStates } from "./buffer";
+import { emptyAnnouncementEstimate, emptyAnnouncementPlan, isEmptyAnnouncement } from "./empty-announcement";
+import { persistEstimate } from "./persist-estimate";
 
 /**
  * Generate steps for an assignment and save them.
@@ -30,7 +32,14 @@ export async function persistDecomposition(
     timebox_minutes: s.timebox_minutes,
     done_criteria: s.done_criteria,
   }));
-  return createSteps(rows);
+  const created = await createSteps(rows);
+  // An empty announcement gets its fixed 5-minute estimate, logged like any
+  // other estimate so the activity feed stays consistent. A manual estimate
+  // the student typed is never overwritten (persistEstimate checks).
+  if (isEmptyAnnouncement({ title: input.title, type: input.type, description: input.description })) {
+    await persistEstimate(assignmentId, input.type, emptyAnnouncementEstimate());
+  }
+  return created;
 }
 
 export interface PlanInfo {
@@ -54,6 +63,13 @@ export let lastAiError: string | null = null;
  *    and the assignment stays unplanned so the student can retry.
  */
 export async function tailoredSteps(input: DecomposeInput, description?: string): Promise<DecomposedStep[] | null> {
+  // Empty announcement: one fixed local step, never an AI call. Checked on
+  // the current description every time, so adding real text in Moodle later
+  // gives it a normal plan on the next rebuild.
+  if (isEmptyAnnouncement({ title: input.title, type: input.type, description: description ?? input.description })) {
+    lastAiError = null;
+    return emptyAnnouncementPlan();
+  }
   const details = stripHtml(description).slice(0, 4000);
   const isVideo = ["video", "lecture"].includes(input.type.toLowerCase());
   if (isVideo && details.length < 40) {
@@ -99,6 +115,7 @@ export async function regenerateSteps(assignmentId: string, info: PlanInfo = {})
     type: info.type ?? "paper",
     estimatedMinutes: info.estimatedMinutes ?? a.estimated_minutes,
     dueAt: a.due_at,
+    description: info.description,
   };
   const planned = await tailoredSteps(input, info.description);
   if (!planned)
@@ -132,6 +149,7 @@ export async function decomposeAllUnplanned(
       type: i.type ?? "paper",
       estimatedMinutes: i.estimatedMinutes ?? a.estimated_minutes,
       dueAt: a.due_at,
+      description: i.description,
     };
     const planned = await tailoredSteps(input, i.description);
     if (!planned) {

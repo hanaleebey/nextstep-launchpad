@@ -6,6 +6,7 @@
 import { supabase } from "@/integrations/supabase/client";
 import { decompose, type DecomposedStep } from "./decompose";
 import { sanitizeAiSteps } from "./ai-steps";
+import { emptyAnnouncementPlan, isEmptyAnnouncement } from "./empty-announcement";
 
 export interface AgentAssignment {
   title: string;
@@ -32,6 +33,14 @@ async function serverMessage(error: unknown): Promise<string | null> {
 }
 
 export async function planAssignment(assignment: AgentAssignment): Promise<PlanResult> {
+  // An empty announcement is always one fixed local step — the model is
+  // never called for it.
+  const empty = isEmptyAnnouncement({
+    title: assignment.title,
+    type: assignment.type,
+    description: assignment.description,
+  });
+  if (empty) return { steps: emptyAnnouncementPlan(), source: "fallback", note: null };
   const fallback = (note: string): PlanResult => ({
     steps: decompose({
       title: assignment.title,
@@ -54,6 +63,10 @@ export async function planAssignment(assignment: AgentAssignment): Promise<PlanR
     if (typed?.error?.message) return fallback(typed.error.message);
     // Defence in depth: re-check the shape before trusting it.
     const steps = sanitizeAiSteps(data);
+    // Belt and braces: if an empty announcement ever does reach the model
+    // (a future code path that skips the guard above), collapse whatever it
+    // returns to the single "View announcement" step instead of saving it.
+    if (empty && steps && steps.length > 1) return { steps: emptyAnnouncementPlan(), source: "ai", note: null };
     return steps ? { steps, source: "ai", note: null } : fallback("AI output was unusable");
   } catch (e) {
     return fallback(e instanceof Error ? e.message : "AI unavailable");
