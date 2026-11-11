@@ -10,7 +10,9 @@ import { getLmsProvider, subscribeLmsDataChanged, syncLmsNow, type Assignment, t
 import { decomposeAllUnplanned, regenerateSteps, lastAiError } from "@/lib/agent/decompose-persist";
 import { BUFFER_LABEL, bufferStateFor, computeSlack, daysUntil, remainingMinutes } from "@/lib/engine/buffer";
 import { scheduleWeek, type SchedulableStep } from "@/lib/engine/schedule";
-import type { BufferState } from "@/types/nextstep";
+import { isDone, partitionByCompletion, snapshotSteps } from "@/lib/completion";
+import { logActivity, markAssignmentDone, reopenAssignment, restoreCompletion } from "@/lib/db";
+import type { AssignmentStatus, BufferState, StepStatus } from "@/types/nextstep";
 
 interface MapData {
   courses: Course[];
@@ -71,7 +73,60 @@ export function MapView({ onOpen }: { onOpen: () => void }) {
   const [openId, setOpenId] = useState<string | null>(null);
   const [planning, setPlanning] = useState(false);
   const [syncing, setSyncing] = useState(false);
+  const [completing, setCompleting] = useState(false);
+  const [reopeningId, setReopeningId] = useState<string | null>(null);
+  // Open/closed state of the Completed section, kept for the session.
+  const [completedOpen, setCompletedOpen] = useState(
+    () => sessionStorage.getItem("nextstep.completed-open") === "1",
+  );
   const qc = useQueryClient();
+
+  function toggleCompleted(open: boolean) {
+    setCompletedOpen(open);
+    sessionStorage.setItem("nextstep.completed-open", open ? "1" : "0");
+  }
+
+  /** One-action completion: every open step done, assignment done at 100%. */
+  async function markDone(r: (typeof rows)[number]) {
+    if (completing) return;
+    setCompleting(true);
+    const id = r.a.lmsAssignmentId;
+    const snapshot = snapshotSteps(r.steps); // prior statuses, kept for Undo
+    const prevStatus = (r.a.status ?? "todo") as AssignmentStatus;
+    const prevProgress = r.a.progressPct;
+    try {
+      await markAssignmentDone(id);
+      await logActivity("complete", `Marked ${r.a.title} done`);
+      await qc.invalidateQueries();
+      toast.success(`Marked ${r.a.title} done`, {
+        duration: 8000,
+        action: {
+          label: "Undo",
+          onClick: () => {
+            restoreCompletion(id, snapshot as { id: string; status: StepStatus }[], prevStatus, prevProgress)
+              .then(() => qc.invalidateQueries())
+              .catch((e) => toast.error(`Couldn't undo: ${e instanceof Error ? e.message : String(e)}`));
+          },
+        },
+      });
+    } catch (e) {
+      toast.error(`Couldn't mark done: ${e instanceof Error ? e.message : String(e)}`);
+    } finally {
+      setCompleting(false);
+    }
+  }
+
+  /** Reopen after the inline confirm: in progress, final step back to to-do. */
+  async function reopen(id: string) {
+    setReopeningId(null);
+    try {
+      await reopenAssignment(id);
+      await qc.invalidateQueries();
+      toast.success("Reopened — it's back on the Map with one step left.");
+    } catch (e) {
+      toast.error(`Couldn't reopen: ${e instanceof Error ? e.message : String(e)}`);
+    }
+  }
 
   // Background Moodle syncs finish after first paint; refetch when they do.
   useEffect(() => subscribeLmsDataChanged(() => { void qc.invalidateQueries({ queryKey: ["lms"] }); }), [qc]);
@@ -161,16 +216,20 @@ export function MapView({ onOpen }: { onOpen: () => void }) {
       };
     })
     .sort((x, y) => x.slack - y.slack);
+  // Completed work leaves the active list, the counts and the week timeline.
+  const { active: activeRows, completed: completedRows } = partitionByCompletion(
+    rows.map((r) => ({ ...r, status: r.a.status })),
+  );
   const openRow = rows.find((r) => r.a.lmsAssignmentId === openId) ?? null;
 
-  const upcoming = rows.filter((r) => r.days !== null && r.days >= 0);
-  const atRisk = rows.filter((r) => r.state !== "green").length;
-  const totalRemaining = rows.reduce((s, r) => s + r.remaining, 0);
-  const thisWeek = rows.filter((r) => r.days !== null && r.days >= 0 && r.days <= 7).length;
-  const unplannedCount = rows.filter((r) => r.totalSteps === 0).length;
+  const upcoming = activeRows.filter((r) => r.days !== null && r.days >= 0);
+  const atRisk = activeRows.filter((r) => r.state !== "green").length;
+  const totalRemaining = activeRows.reduce((s, r) => s + r.remaining, 0);
+  const thisWeek = activeRows.filter((r) => r.days !== null && r.days >= 0 && r.days <= 7).length;
+  const unplannedCount = activeRows.filter((r) => r.totalSteps === 0).length;
 
   // Week timeline: feed unfinished steps in urgency order to the scheduler.
-  const queue: SchedulableStep[] = rows.flatMap((r) =>
+  const queue: SchedulableStep[] = activeRows.flatMap((r) =>
     r.steps
       .filter((s) => s.status === "todo")
       .map((s) => ({
@@ -190,7 +249,7 @@ export function MapView({ onOpen }: { onOpen: () => void }) {
   });
 
   // Automated activity: what the system did during this sync.
-  const red = rows.filter((r) => r.state === "red");
+  const red = activeRows.filter((r) => r.state === "red");
   const activity = [
     `Synced ${data.courses.length} courses and ${data.assignments.length} assignments`,
     `Estimated remaining work: ${formatMinutes(totalRemaining)}`,
@@ -225,7 +284,7 @@ export function MapView({ onOpen }: { onOpen: () => void }) {
       </header>
 
       <section className="map-stats" aria-label="Summary">
-        <Stat label="Assignments" value={String(rows.length)} />
+        <Stat label="Assignments" value={String(activeRows.length)} />
         <Stat label="At risk" value={String(atRisk)} />
         <Stat label="Estimated load (remaining)" value={formatMinutes(totalRemaining)} />
         <Stat label="This week" value={String(thisWeek)} />
@@ -234,8 +293,11 @@ export function MapView({ onOpen }: { onOpen: () => void }) {
       <div className="map-grid">
         <section aria-labelledby="map-list-title" className="map-card">
           <h2 id="map-list-title">Assignments by urgency</h2>
+          {activeRows.length === 0 ? (
+            <p className="map-empty">Nothing left in play. Completed work is listed below.</p>
+          ) : (
           <ul className="map-list">
-            {rows.map((r) => {
+            {activeRows.map((r) => {
               const started = r.doneSteps > 0;
               return (
                 <li key={r.a.lmsAssignmentId} className={`map-row${r.state === "red" ? " map-row-red" : ""}`}>
@@ -253,11 +315,15 @@ export function MapView({ onOpen }: { onOpen: () => void }) {
                   <div className="map-row-side">
                     <BufferChip state={r.state} />
                     <button type="button" className="map-btn" aria-expanded={openId === r.a.lmsAssignmentId} onClick={() => setOpenId(openId === r.a.lmsAssignmentId ? null : r.a.lmsAssignmentId)}>{openId === r.a.lmsAssignmentId ? "Close" : started ? "Resume" : "Open"}</button>
+                    <button type="button" className="map-btn" disabled={completing} onClick={() => void markDone(r)}>
+                      <Check size={14} aria-hidden="true" />Mark done
+                    </button>
                   </div>
                 </li>
               );
             })}
           </ul>
+          )}
         </section>
 
         <aside className="map-aside">
@@ -269,6 +335,7 @@ export function MapView({ onOpen }: { onOpen: () => void }) {
               onWork={() => { focusAssignment(openRow.a.lmsAssignmentId); onOpen(); }}
               planning={planning}
               onPlan={() => { void rebuild(openRow.a.lmsAssignmentId); }}
+              onMarkDone={() => void markDone(openRow)}
             />
           )}
           <section aria-labelledby="map-week-title" className="map-card">
@@ -310,6 +377,49 @@ export function MapView({ onOpen }: { onOpen: () => void }) {
           </section>
         </aside>
       </div>
+
+      {completedRows.length > 0 && (
+        <section aria-labelledby="map-completed-title" className="map-card map-completed">
+          <button type="button" className="map-completed-head" aria-expanded={completedOpen}
+            onClick={() => toggleCompleted(!completedOpen)}>
+            <h2 id="map-completed-title">Completed ({completedRows.length})</h2>
+            <span className="map-sub">{completedOpen ? "Hide" : "Show"}</span>
+          </button>
+          {completedOpen && (
+            <ul className="map-list">
+              {completedRows.map((r) => (
+                <li key={r.a.lmsAssignmentId} className="map-row">
+                  <div className="map-row-main">
+                    <span className="course-chip">{courseCode.get(r.a.lmsCourseId)}</span>
+                    <h3>{r.a.title}</h3>
+                    <p className="map-meta">
+                      Completed {r.a.updatedAt
+                        ? new Date(r.a.updatedAt).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" })
+                        : "recently"}
+                    </p>
+                  </div>
+                  <div className="map-row-side">
+                    {reopeningId === r.a.lmsAssignmentId ? (
+                      <span className="exec-actions" role="group" aria-label="Confirm reopen">
+                        <button type="button" className="map-btn" onClick={() => void reopen(r.a.lmsAssignmentId)}>Confirm</button>
+                        <button type="button" className="map-btn" onClick={() => setReopeningId(null)}>Keep done</button>
+                      </span>
+                    ) : (
+                      <button type="button" className="map-btn"
+                        onClick={() => setReopeningId(r.a.lmsAssignmentId)}>
+                        Reopen
+                      </button>
+                    )}
+                  </div>
+                </li>
+              ))}
+            </ul>
+          )}
+          {reopeningId && (
+            <p className="map-sub" role="status">Reopen this assignment? The last step will be set back to to do.</p>
+          )}
+        </section>
+      )}
     </div>
   );
 }
@@ -338,6 +448,7 @@ function AssignmentDetail(props: {
   onWork: () => void;
   planning: boolean;
   onPlan: () => void;
+  onMarkDone: () => void;
 }) {
   const { a, steps, progress, days, remaining, state } = props.row;
   const hasTodo = steps.some((s) => s.status === "todo");
@@ -380,6 +491,9 @@ function AssignmentDetail(props: {
       <button type="button" className="map-btn" onClick={props.onPlan} disabled={props.planning}>
         {props.planning ? <Loader2 size={14} className="map-spin" aria-hidden="true" /> : <ListChecks size={14} aria-hidden="true" />}
         {steps.length ? "Rebuild steps for this assignment" : "Generate steps"}
+      </button>
+      <button type="button" className="map-btn" onClick={props.onMarkDone}>
+        <Check size={14} aria-hidden="true" />Mark assignment done
       </button>
       {hasTodo && <button type="button" className="exec-btn exec-done" onClick={props.onWork}>Work on this in Execute</button>}
     </section>

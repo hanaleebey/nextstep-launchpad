@@ -3,7 +3,7 @@
 // so these functions don't filter by user_id themselves (the DB does it).
 import { supabase } from "@/integrations/supabase/client";
 import type {
-  ActivityKind, ActivityLogEntry, Assignment, Course, DetectedItem, EstimateEvent,
+  ActivityKind, ActivityLogEntry, Assignment, AssignmentStatus, Course, DetectedItem, EstimateEvent,
   LmsConnection, NewAssignment, NewCourse, NewDetectedItem, NewEstimateEvent,
   NewLmsConnection, NewStep, NewWeeklyAllocation, Step, StepStatus, UserSettings, WeeklyAllocation,
 } from "@/types/nextstep";
@@ -150,6 +150,40 @@ export async function updateStep(
   patch: Partial<Pick<Step, "status" | "order_index" | "scheduled_date">>,
 ): Promise<Step> {
   return unwrap(await db.from("steps").update(patch).eq("id", id).select().single());
+}
+
+// ---------- completion (transactional RPCs: step and assignment never disagree) ----------
+/**
+ * Save a step status and recompute its assignment in one transaction. When the
+ * last open step is done the assignment becomes done at 100%; an assignment
+ * with zero steps is never auto-completed.
+ */
+export async function completeStep(
+  stepId: string,
+  status: StepStatus,
+): Promise<{ assignment_id: string; status: AssignmentStatus; progress_pct: number }> {
+  const rows = unwrap(await db.rpc("complete_step", { _step_id: stepId, _status: status }));
+  const row = Array.isArray(rows) ? rows[0] : rows;
+  if (!row) throw new Error("Step not found");
+  return row;
+}
+/** Mark every open step done and set the assignment to done at 100%, atomically. */
+export async function markAssignmentDone(assignmentId: string): Promise<void> {
+  unwrap(await db.rpc("mark_assignment_done", { _assignment_id: assignmentId }));
+}
+/** Reopen a completed assignment: in progress, final step back to to-do. */
+export async function reopenAssignment(assignmentId: string): Promise<void> {
+  unwrap(await db.rpc("reopen_assignment", { _assignment_id: assignmentId }));
+}
+/** Undo a bulk completion: restore the exact prior step statuses and assignment state. */
+export async function restoreCompletion(
+  assignmentId: string,
+  snapshot: { id: string; status: StepStatus }[],
+  prevStatus: AssignmentStatus,
+  prevProgress: number,
+): Promise<void> {
+  await Promise.all(snapshot.map(async (s) => unwrap(await db.from("steps").update({ status: s.status }).eq("id", s.id))));
+  unwrap(await db.from("assignments").update({ status: prevStatus, progress_pct: prevProgress }).eq("id", assignmentId));
 }
 
 // ---------- weekly_allocations ----------

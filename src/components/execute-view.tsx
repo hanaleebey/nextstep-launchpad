@@ -5,7 +5,8 @@ import { useEffect, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { runReplan } from "@/lib/agent/replan";
-import { setStepStatus, updateAssignment } from "@/lib/db";
+import { completeStep } from "@/lib/db";
+import { isDone } from "@/lib/completion";
 import { AlertTriangle, Check, CircleCheckBig, Hand, Loader2, Pause, Play, Square } from "lucide-react";
 import { loadMapData, BufferChip } from "@/components/map-view";
 import { bufferStateFor, computeSlack, daysUntil, remainingMinutes, BUFFER_LABEL } from "@/lib/engine/buffer";
@@ -66,6 +67,7 @@ export function ExecuteView() {
       const slack = computeSlack(days, remaining);
       return { a, steps, progress, days, remaining, slack, state: bufferStateFor(slack) };
     })
+    .filter((r) => !isDone(r.a)) // completed work is never offered as a next action
     .sort((x, y) => x.slack - y.slack);
 
   // A focus chosen from Map's "Open" panel wins while it still has todo steps.
@@ -80,7 +82,7 @@ export function ExecuteView() {
   const hitRate = session.finished.length ? Math.round((hit / session.finished.length) * 100) : null;
 
   if (!current) {
-    return <div className="map-state"><CircleCheckBig size={22} aria-hidden="true" />Nothing left to do right now. Nice work.</div>;
+    return <div className="map-state"><CircleCheckBig size={22} aria-hidden="true" />Everything is done. Nothing to start right now.</div>;
   }
 
   const step = current.steps.find((s) => s.status === "todo")!;
@@ -93,8 +95,6 @@ export function ExecuteView() {
     ? `You chose ${current.a.title} from the Map — due ${fmtDue(current.a.dueAt, current.days)}, buffer "${BUFFER_LABEL[current.state]}". This is its first unfinished step.`
     : `${current.a.title} is your most urgent assignment — due ${fmtDue(current.a.dueAt, current.days)}, ` +
       `buffer "${BUFFER_LABEL[current.state]}". This is its first unfinished step.`;
-  const stepIds = current.steps.map((s) => s.id);
-
   return (
     <div className="exec-grid">
       <div className="exec-main">
@@ -115,7 +115,6 @@ export function ExecuteView() {
         key={stepKey(current.a.lmsAssignmentId, step.orderIndex)}
         stepId={stepKey(current.a.lmsAssignmentId, step.orderIndex)}
         dbStepId={step.id}
-        progressAfter={stepIds.length ? Math.round(((current.steps.filter((s) => s.status !== "todo").length + 1) / stepIds.length) * 100) : 0}
         context={`${code.get(current.a.lmsCourseId)} · ${current.a.title} · step ${step.orderIndex + 1} of ${current.steps.length}`}
         title={step.title}
         criteria={step.doneCriteria}
@@ -162,7 +161,7 @@ export function ExecuteView() {
 }
 
 function ActionCard(props: {
-  stepId: string; dbStepId?: string | undefined; progressAfter: number; lmsAssignmentId: string; itemType: string; onSuspect: (s: Sample) => void; context: string; title: string; criteria: string[]; timeboxMinutes: number; why: string;
+  stepId: string; dbStepId?: string | undefined; lmsAssignmentId: string; itemType: string; onSuspect: (s: Sample) => void; context: string; title: string; criteria: string[]; timeboxMinutes: number; why: string;
 }) {
   const total = props.timeboxMinutes * 60;
   const [elapsed, setElapsed] = useState(0);
@@ -196,12 +195,10 @@ function ActionCard(props: {
       }
     }
     finishStep({ key: props.stepId, status, elapsedSeconds: elapsed, timeboxSeconds: total });
-    // Persisted (Moodle) steps: save the status and progress so Map and reloads see it.
+    // Persisted (Moodle) steps: one transactional write saves the step and
+    // recomputes the assignment — the last step done completes it at 100%.
     if (props.dbStepId) {
-      Promise.all([
-        setStepStatus(props.dbStepId, status),
-        updateAssignment(props.lmsAssignmentId, { progress_pct: Math.min(100, props.progressAfter) }),
-      ])
+      completeStep(props.dbStepId, status)
         .then(() => queryClient.invalidateQueries({ queryKey: ["lms"] }))
         .catch((e) => toast.error(`Couldn't save this step: ${e instanceof Error ? e.message : String(e)}`));
     }

@@ -29,6 +29,8 @@ export interface LmsStep {
 
 export type LmsItemType = "video" | "read" | "quiz" | "paper" | "post";
 
+export type LmsAssignmentStatus = "todo" | "in_progress" | "done";
+
 export interface Assignment {
   lmsAssignmentId: string;
   lmsCourseId: string;
@@ -39,6 +41,10 @@ export interface Assignment {
   /** Moodle description/prompt (HTML), when known. */
   description?: string | undefined;
   progressPct: number;
+  /** Completion source of truth. Undefined (demo data) means still active. */
+  status?: LmsAssignmentStatus | undefined;
+  /** Last write time — shown as the completion date for finished work. */
+  updatedAt?: string | undefined;
   bufferState?: "green" | "amber" | "red";
   steps?: LmsStep[];
 }

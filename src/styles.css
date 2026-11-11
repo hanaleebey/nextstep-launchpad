@@ -395,6 +395,10 @@
 .settings-form label { display: grid; gap: 6px; font-size: .85rem; font-weight: 600; color: var(--ink); }
 .settings-form input, .settings-form select { height: 40px; padding: 0 12px; border: 1px solid var(--border); border-radius: 10px; background: var(--surface); color: var(--ink); font-weight: 400; }
 .settings-form input:focus-visible, .settings-form select:focus-visible { outline: 2px solid var(--primary); outline-offset: 1px; }
+.map-completed { margin-top: 16px; }
+.map-completed-head { display: flex; align-items: center; justify-content: space-between; width: 100%; border: 0; background: transparent; padding: 0; cursor: pointer; text-align: left; }
+.map-completed-head:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; border-radius: 8px; }
+.map-completed-head h2 { margin: 0; }
 .settings-form input[aria-invalid="true"] { border-color: var(--red); }
 .field-error { margin: 4px 0 0; font-size: .8rem; color: var(--red); }
 .password-field { position: relative; display: block; }

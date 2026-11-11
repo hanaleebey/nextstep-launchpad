@@ -128,6 +128,8 @@ export class MoodleProvider implements LmsProvider {
         dueAt: a.due_at,
         estimatedMinutes,
         progressPct: a.progress_pct,
+        status: a.status,
+        updatedAt: a.updated_at,
         bufferState: a.buffer_state,
         steps: steps.map((s) => ({
           id: s.id,
