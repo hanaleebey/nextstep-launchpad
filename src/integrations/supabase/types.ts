@@ -345,21 +345,27 @@ export type Database = {
       }
       users_settings: {
         Row: {
+          auto_plan_new_items: boolean
           created_at: string
+          default_timebox_minutes: number
           timezone: string
           updated_at: string
           user_id: string
           weekly_available_hours: number
         }
         Insert: {
+          auto_plan_new_items?: boolean
           created_at?: string
+          default_timebox_minutes?: number
           timezone?: string
           updated_at?: string
           user_id: string
           weekly_available_hours?: number
         }
         Update: {
+          auto_plan_new_items?: boolean
           created_at?: string
+          default_timebox_minutes?: number
           timezone?: string
           updated_at?: string
           user_id?: string

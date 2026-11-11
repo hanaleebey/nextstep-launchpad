@@ -31,7 +31,7 @@ afterEach(cleanup);
 describe("NextStepShell", () => {
   it("opens Connect on first run and Map once a connection is saved", async () => {
     mount(<NextStepShell email="student@example.edu" />);
-    await screen.findByRole("heading", { name: "Connect" });
+    await screen.findByRole("heading", { name: "Get started" });
     cleanup();
     mocks.connection.mockResolvedValue({ site_url: "https://moodle.example.edu" });
     mount(<NextStepShell email="student@example.edu" />);
@@ -45,7 +45,7 @@ describe("NextStepShell", () => {
 
   it("switches to demo Map and back to the saved source", async () => {
     mount(<NextStepShell email="student@example.edu" />);
-    await screen.findByRole("heading", { name: /connect/i });
+    await screen.findByRole("heading", { name: /get started/i });
     fireEvent.click(screen.getByRole("switch", { name: "Use demo data" }));
     await screen.findByRole("heading", { name: "Semester map" });
     expect(screen.getByRole("switch", { name: "Use demo data" })).toBeChecked();

@@ -382,6 +382,15 @@
 .behind-chips { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; color: var(--muted); }
 
 /* ---------- Settings ---------- */
+.settings-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; align-items: start; }
+@media (max-width: 999px) { .settings-grid { grid-template-columns: 1fr; } }
+.settings-danger { margin-top: 16px; padding: 14px 16px; border-radius: calc(var(--radius) - 4px); border: 1px solid color-mix(in oklch, var(--red) 30%, transparent); background: var(--red-bg); display: grid; gap: 10px; }
+.settings-danger h3 { font-size: .95rem; font-weight: 700; color: var(--red); }
+.settings-danger .map-sub { margin: 0; }
+.settings-danger label { display: grid; gap: 6px; font-size: .85rem; font-weight: 600; color: var(--ink); }
+.settings-danger input { height: 40px; padding: 0 12px; border: 1px solid var(--border); border-radius: 10px; background: var(--surface); color: var(--ink); font-weight: 400; max-width: 220px; }
+.settings-danger input:focus-visible { outline: 2px solid var(--red); outline-offset: 1px; }
+.exec-danger { background: var(--red); color: var(--surface); }
 .settings-form { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 16px; align-items: end; }
 .settings-form label { display: grid; gap: 6px; font-size: .85rem; font-weight: 600; color: var(--ink); }
 .settings-form input, .settings-form select { height: 40px; padding: 0 12px; border: 1px solid var(--border); border-radius: 10px; background: var(--surface); color: var(--ink); font-weight: 400; }

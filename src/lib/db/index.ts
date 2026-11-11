@@ -42,6 +42,42 @@ export async function ensureDefaultSettings(): Promise<void> {
   unwrap(await db.from("users_settings").upsert({ user_id }, { onConflict: "user_id", ignoreDuplicates: true }));
 }
 
+// ---------- calibration_multipliers ----------
+export interface CalibrationRow {
+  item_type: string;
+  multiplier: number;
+  sample_count: number;
+}
+export async function listCalibrationMultipliers(): Promise<CalibrationRow[]> {
+  return unwrap(await db.from("calibration_multipliers").select("item_type, multiplier, sample_count").order("item_type"));
+}
+/** Delete only the signed-in user's calibration rows (RLS scopes the delete). */
+export async function resetCalibration(): Promise<void> {
+  unwrap(await db.from("calibration_multipliers").delete().not("item_type", "is", null));
+}
+
+// ---------- danger zone ----------
+/**
+ * Delete every planning row the signed-in user owns, in FK-safe order.
+ * Keeps users_settings and lms_connections; RLS guarantees no other user's
+ * rows can be touched. Child tables (steps, estimate_events) key off
+ * assignments, so they go first via the user's own assignment ids.
+ */
+export async function resetAllAppData(): Promise<void> {
+  const assignments = await listAssignments();
+  const ids = assignments.map((a) => a.id);
+  if (ids.length) {
+    unwrap(await db.from("estimate_events").delete().in("assignment_id", ids));
+    unwrap(await db.from("steps").delete().in("assignment_id", ids));
+  }
+  unwrap(await db.from("weekly_allocations").delete().not("id", "is", null));
+  unwrap(await db.from("detected_items").delete().not("id", "is", null));
+  if (ids.length) unwrap(await db.from("assignments").delete().in("id", ids));
+  unwrap(await db.from("courses").delete().not("id", "is", null));
+  unwrap(await db.from("activity_log").delete().not("id", "is", null));
+  unwrap(await db.from("calibration_multipliers").delete().not("item_type", "is", null));
+}
+
 // ---------- lms_connections ----------
 export async function getLmsConnection(): Promise<LmsConnection | null> {
   return unwrap(

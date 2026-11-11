@@ -14,6 +14,8 @@ export interface UserSettings {
   user_id: string;
   weekly_available_hours: number;
   timezone: string;
+  default_timebox_minutes: number; // step length used when a step has no timebox
+  auto_plan_new_items: boolean; // plan new assignments automatically after sync
   created_at: string;
   updated_at: string;
 }

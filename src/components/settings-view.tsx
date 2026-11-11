@@ -1,16 +1,20 @@
-// Settings page. Gathers inputs (users_settings) and displays engine outputs.
-// No planning logic lives here: allocation is done by src/lib/agent.
-import { useEffect, useState, type FormEvent } from "react";
+// Settings page. Grouped cards over users_settings, calibration_multipliers and
+// lms_connections. No planning logic lives here: allocation/buffer/estimation
+// engines keep running unchanged in src/lib/agent.
+import { useEffect, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { AlertTriangle, CalendarX2, Loader2, RefreshCw } from "lucide-react";
+import { useNavigate } from "@tanstack/react-router";
+import { Loader2, RefreshCw, Unplug } from "lucide-react";
 import { toast } from "sonner";
-import { ensureDefaultSettings, getSettings, listAssignments, listCourses, listWeeklyAllocations, saveSettings } from "@/lib/db";
-import { getCalibrationSummary } from "@/lib/agent/calibrate-persist";
-import { MIN_SAMPLES } from "@/lib/agent/calibrate";
-import { recomputeWeeklyAllocations } from "@/lib/agent/allocate-persist";
-import { isDueInHorizon } from "@/lib/agent/allocate";
-import { weekInTimezone } from "@/lib/time/week-in-timezone";
-type Result = Awaited<ReturnType<typeof recomputeWeeklyAllocations>>;
+import { supabase } from "@/integrations/supabase/client";
+import {
+  ensureDefaultSettings, getLmsConnection, getSettings, listCalibrationMultipliers,
+  removeLmsConnection, resetAllAppData, resetCalibration, saveSettings,
+} from "@/lib/db";
+import { resetLmsProvider, syncLmsNow } from "@/lib/lms";
+import { getProviderState, setUseDemoData } from "@/lib/lms/provider-state";
+import { Switch } from "@/components/ui/switch";
+import type { UserSettings } from "@/types/nextstep";
 
 /** Load the row; create it with column defaults if missing. */
 async function loadSettings() {
@@ -39,19 +43,106 @@ const TIMEZONES: { label: string; id: string }[] = [
   { label: "(UTC+10) Australia Eastern Time", id: "Australia/Sydney" },
 ];
 
+const TIMEBOX_OPTIONS = [10, 15, 25, 45];
+
 /** Browser's zone if it's in the list, otherwise Eastern Time. */
 function defaultTimezone(): string {
   const browser = Intl.DateTimeFormat().resolvedOptions().timeZone;
   return TIMEZONES.some((t) => t.id === browser) ? browser : "America/New_York";
 }
 
-export function SettingsView() {
+/** Weekly hours must be a whole 1–60. Exported for tests. */
+export function validWeeklyHours(h: number): boolean {
+  return Number.isInteger(h) && h >= 1 && h <= 60;
+}
+
+/** The danger-zone reset only arms when the student types RESET exactly. */
+export function canResetData(typed: string): boolean {
+  return typed === "RESET";
+}
+
+export function SettingsView({ email }: { email: string }) {
   const queryClient = useQueryClient();
+  const navigate = useNavigate();
   const settingsQ = useQuery({ queryKey: ["settings"], queryFn: loadSettings });
 
+  return (
+    <div className="map-view">
+      <header className="map-header">
+        <div>
+          <h1>Settings</h1>
+          <p className="map-sub">Your weekly capacity drives every plan NextStep makes.</p>
+        </div>
+      </header>
+
+      <div className="settings-grid">
+        <AccountCard email={email} onSignOut={async () => {
+          await queryClient.cancelQueries();
+          queryClient.clear();
+          await supabase.auth.signOut();
+          resetLmsProvider();
+          navigate({ to: "/auth", replace: true });
+        }} />
+        <CapacityCard settingsQ={settingsQ} />
+        <PlanningCard settingsQ={settingsQ} />
+        <CalibrationCard />
+        <ConnectionCard />
+      </div>
+    </div>
+  );
+}
+
+type SettingsQuery = ReturnType<typeof useQuery<UserSettings | null>>;
+
+/** Save a patch with an optimistic cache update and a toast on the result. */
+function useSaveSettings(queryClient: ReturnType<typeof useQueryClient>) {
+  const [saving, setSaving] = useState(false);
+  async function save(patch: Partial<Pick<UserSettings, "weekly_available_hours" | "timezone" | "default_timebox_minutes" | "auto_plan_new_items">>) {
+    setSaving(true);
+    const prev = queryClient.getQueryData<UserSettings | null>(["settings"]);
+    if (prev) queryClient.setQueryData(["settings"], { ...prev, ...patch });
+    try {
+      await saveSettings(patch);
+      await queryClient.invalidateQueries({ queryKey: ["settings"] });
+      toast.success("Settings saved");
+    } catch (err) {
+      if (prev) queryClient.setQueryData(["settings"], prev); // roll back
+      toast.error(err instanceof Error ? err.message : "Couldn't save settings");
+    } finally {
+      setSaving(false);
+    }
+  }
+  return { save, saving };
+}
+
+// ---------- A. Account ----------
+function AccountCard({ email, onSignOut }: { email: string; onSignOut: () => Promise<void> }) {
+  const [busy, setBusy] = useState(false);
+  return (
+    <section className="map-card" aria-labelledby="account-title">
+      <h2 id="account-title">Account</h2>
+      <div className="settings-form">
+        <label>Signed in as
+          <input type="text" value={email} readOnly aria-readonly="true" />
+        </label>
+      </div>
+      <div style={{ marginTop: 12 }}>
+        <button type="button" className="exec-btn exec-stopped" disabled={busy}
+          onClick={async () => { setBusy(true); try { await onSignOut(); } finally { setBusy(false); } }}>
+          {busy ? "Signing out…" : "Sign out"}
+        </button>
+      </div>
+    </section>
+  );
+}
+
+// ---------- B. Study capacity ----------
+function CapacityCard({ settingsQ }: { settingsQ: SettingsQuery }) {
+  const queryClient = useQueryClient();
+  const { save, saving } = useSaveSettings(queryClient);
   const [hours, setHours] = useState("20");
   const [tz, setTz] = useState(defaultTimezone);
-  const [saving, setSaving] = useState(false);
+  const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
     const s = settingsQ.data;
@@ -60,181 +151,268 @@ export function SettingsView() {
     setTz(s.timezone);
   }, [settingsQ.data]);
 
-  async function onSave(e: FormEvent) {
-    e.preventDefault();
-    const h = Number(hours);
-    if (!Number.isFinite(h) || h < 0 || h > 80) {
-      toast.error("Weekly hours must be between 0 and 80.");
-      return;
-    }
-    setSaving(true);
-    try {
-      await saveSettings({ weekly_available_hours: h, timezone: tz });
-      await queryClient.invalidateQueries({ queryKey: ["settings"] });
-      toast.success("Settings saved");
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Couldn't save settings");
-    } finally {
-      setSaving(false);
-    }
+  // Debounced save-on-change: wait for the student to stop editing.
+  function scheduleSave(patch: Parameters<typeof save>[0]) {
+    if (timer.current) clearTimeout(timer.current);
+    timer.current = setTimeout(() => void save(patch), 600);
+  }
+  useEffect(() => () => { if (timer.current) clearTimeout(timer.current); }, []);
+
+  function onHours(value: string) {
+    setHours(value);
+    const h = Number(value);
+    if (!validWeeklyHours(h)) return; // invalid input just isn't saved yet
+    scheduleSave({ weekly_available_hours: h });
+  }
+  function onTimezone(id: string) {
+    setTz(id);
+    scheduleSave({ timezone: id });
   }
 
   return (
-    <div className="map-view">
-      <header className="map-header"><div><h1>Settings</h1><p className="map-sub">Your weekly capacity drives every plan NextStep makes.</p></div></header>
-
-      <section className="map-card" aria-labelledby="capacity-title">
-        <h2 id="capacity-title">Weekly capacity</h2>
-        {settingsQ.isLoading ? (
-          <p className="map-empty" role="status">Loading your settings…</p>
-        ) : settingsQ.isError ? (
-          <p className="map-empty" role="alert">Couldn't load your settings.</p>
-        ) : (
-          <form onSubmit={onSave} className="settings-form">
+    <section className="map-card" aria-labelledby="capacity-title">
+      <h2 id="capacity-title">Study capacity</h2>
+      {settingsQ.isLoading ? (
+        <p className="map-empty" role="status">Loading your settings…</p>
+      ) : settingsQ.isError ? (
+        <p className="map-empty" role="alert">Couldn't load your settings.</p>
+      ) : (
+        <>
+          <div className="settings-form">
             <label>Weekly available hours
-              <input type="number" step={0.5} min={0} max={80} required value={hours} onChange={(e) => setHours(e.target.value)} />
+              <input type="number" step={1} min={1} max={60} required value={hours}
+                onChange={(e) => onHours(e.target.value)} aria-describedby="capacity-help" />
             </label>
             <label>Timezone
-              <select value={tz} onChange={(e) => setTz(e.target.value)}>
+              <select value={tz} onChange={(e) => onTimezone(e.target.value)}>
                 {TIMEZONES.map((t) => <option key={t.id} value={t.id}>{t.label}</option>)}
               </select>
             </label>
-            <div><button type="submit" className="exec-btn behind-accept" disabled={saving}>{saving ? "Saving…" : "Save"}</button></div>
-          </form>
-        )}
-      </section>
-
-      <AllocationPanel timezone={settingsQ.data?.timezone ?? "UTC"} />
-      <CalibrationPanel />
-    </div>
+          </div>
+          <p className="map-sub" id="capacity-help" style={{ marginTop: 8 }}>
+            Used to allocate open-ended work and compute buffers.{saving ? " Saving…" : ""}
+          </p>
+        </>
+      )}
+    </section>
   );
 }
 
-/** Re-read this week's open assignments, their courses and allocation rows. */
-async function loadWeek(timezone: string) {
-  const horizon = weekInTimezone(new Date(), timezone);
-  const weekStart = new Intl.DateTimeFormat("en-CA", { timeZone: timezone, year: "numeric", month: "2-digit", day: "2-digit" }).format(horizon.start);
-  const [assignments, courses, allocations] = await Promise.all([listAssignments(), listCourses(), listWeeklyAllocations(weekStart)]);
-  const courseName = new Map(courses.map((c) => [c.id, c.code ?? c.name]));
-  const allocated = new Map(allocations.map((a) => [a.assignment_id, a.allocated_minutes]));
-  const rows = assignments
-    .filter((a) => a.status !== "done" && isDueInHorizon(a.due_at, horizon.start, horizon.end))
-    .map((a) => ({ a, course: a.course_id ? courseName.get(a.course_id) ?? "—" : "—", allocated: allocated.get(a.id) ?? null }));
-  return { horizon, rows };
-}
-
-function AllocationPanel({ timezone }: { timezone: string }) {
+// ---------- C. Planning preferences ----------
+function PlanningCard({ settingsQ }: { settingsQ: SettingsQuery }) {
   const queryClient = useQueryClient();
-  const weekQ = useQuery({ queryKey: ["week-allocation", timezone], queryFn: () => loadWeek(timezone) });
-  const [result, setResult] = useState<Result | null>(null);
-  const [busy, setBusy] = useState(false);
-
-  async function recompute() {
-    setBusy(true);
-    try {
-      const r = await recomputeWeeklyAllocations(new Date(), weekInTimezone(new Date(), timezone));
-      setResult(r);
-      await queryClient.invalidateQueries({ queryKey: ["week-allocation"] });
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Couldn't recompute");
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  async function seed() {
-    const { loadDemoWeek } = await import("@/lib/dev/demo-seed");
-    try {
-      const n = await loadDemoWeek();
-      toast.success(n ? `Added ${n} demo assignments` : "Demo week already loaded");
-      await recompute(); // one click shows the allocation
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Couldn't load demo week");
-    }
-  }
-
-  const allocatedTotal = result ? result.allocations.reduce((s, a) => s + a.minutes, 0) : 0;
-  const fmtDue = (iso: string | null) =>
-    iso ? new Date(iso).toLocaleString(undefined, { timeZone: timezone, weekday: "short", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }) : "—";
+  const { save, saving } = useSaveSettings(queryClient);
+  const s = settingsQ.data;
 
   return (
-    <section className="map-card" aria-labelledby="alloc-title">
-      <div className="settings-panel-head">
-        <h2 id="alloc-title">This week's allocation</h2>
-        <div className="exec-actions">
-          {import.meta.env.DEV && <button type="button" className="exec-btn exec-stopped" onClick={seed}>Load demo week</button>}
-          <button type="button" className="exec-btn behind-accept" onClick={recompute} disabled={busy}>
-            {busy ? <Loader2 size={16} aria-hidden="true" /> : <RefreshCw size={16} aria-hidden="true" />}Recompute this week
-          </button>
-        </div>
-      </div>
-
-      {result?.overCapacity && (
-        <div className="behind-alert" role="alert" style={{ marginBottom: 12 }}>
-          <AlertTriangle size={20} aria-hidden="true" />
-          <div>
-            <h1>Over capacity — this week doesn't fit</h1>
-            <p>{result.signalLoad} min of fixed work vs {result.capacity} min available ({result.signalLoad - result.capacity} min over).</p>
-          </div>
-        </div>
-      )}
-
-      {result && (
-        <dl className="map-meta" role="status" style={{ marginBottom: 12, display: "flex", flexWrap: "wrap", gap: "4px 20px" }}>
-          <div><dt style={{ display: "inline" }}>Capacity: </dt><dd style={{ display: "inline" }} className="tabular-nums">{result.capacity} min</dd></div>
-          <div><dt style={{ display: "inline" }}>Fixed (signal + manual): </dt><dd style={{ display: "inline" }} className="tabular-nums">{result.signalLoad} min</dd></div>
-          <div><dt style={{ display: "inline" }}>Free: </dt><dd style={{ display: "inline" }} className="tabular-nums">{Math.max(0, result.capacity - result.signalLoad)} min</dd></div>
-          <div><dt style={{ display: "inline" }}>Allocated: </dt><dd style={{ display: "inline" }} className="tabular-nums">{allocatedTotal} min</dd></div>
-        </dl>
-      )}
-
-      {weekQ.isLoading ? (
-        <p className="map-empty" role="status">Loading this week…</p>
-      ) : weekQ.isError || !weekQ.data ? (
-        <p className="map-empty" role="alert">Couldn't load this week.</p>
-      ) : weekQ.data.rows.length === 0 ? (
-        <div className="map-state"><CalendarX2 size={22} aria-hidden="true" />Nothing is due this week.</div>
+    <section className="map-card" aria-labelledby="planning-title">
+      <h2 id="planning-title">Planning preferences</h2>
+      {settingsQ.isLoading ? (
+        <p className="map-empty" role="status">Loading your settings…</p>
+      ) : settingsQ.isError || !s ? (
+        <p className="map-empty" role="alert">Couldn't load your settings.</p>
       ) : (
-        <div className="settings-table-wrap">
-          <table className="settings-table">
-            <thead><tr><th>Title</th><th>Course</th><th>Due</th><th>Estimate source</th><th>Allocated</th></tr></thead>
-            <tbody>
-              {weekQ.data.rows.map(({ a, course, allocated }) => (
-                <tr key={a.id}>
-                  <td>{a.title}</td>
-                  <td>{course}</td>
-                  <td>{fmtDue(a.due_at)}</td>
-                  <td>{a.estimate_source ?? "—"}</td>
-                  <td className="tabular-nums">
-                    {allocated ? `${allocated} min` : result?.reasons[a.id] ? `0 min — ${result.reasons[a.id]}` : allocated === 0 ? "0 min" : "—"}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+        <div className="settings-form" style={{ gridTemplateColumns: "1fr" }}>
+          <label>Default step length
+            <select value={s.default_timebox_minutes} aria-describedby="timebox-help"
+              onChange={(e) => void save({ default_timebox_minutes: Number(e.target.value) })}>
+              {TIMEBOX_OPTIONS.map((m) => <option key={m} value={m}>{m} minutes</option>)}
+            </select>
+          </label>
+          <p className="map-sub" id="timebox-help" style={{ marginTop: -8 }}>Used when a step has no timebox.</p>
+          <label className="demo-data-control" htmlFor="auto-plan">
+            <Switch id="auto-plan" checked={s.auto_plan_new_items} disabled={saving}
+              onCheckedChange={(on) => void save({ auto_plan_new_items: on })} />
+            Plan new assignments automatically after sync
+          </label>
         </div>
       )}
     </section>
   );
 }
 
-/** What the system has learned about the student's pace, per item type. */
-function CalibrationPanel() {
-  const q = useQuery({ queryKey: ["calibration"], queryFn: getCalibrationSummary });
+// ---------- D. Calibration ----------
+function CalibrationCard() {
+  const queryClient = useQueryClient();
+  const q = useQuery({ queryKey: ["calibration-rows"], queryFn: listCalibrationMultipliers });
+  const [confirming, setConfirming] = useState(false);
+  const [busy, setBusy] = useState(false);
+
+  async function doReset() {
+    setBusy(true);
+    try {
+      await resetCalibration();
+      await queryClient.invalidateQueries({ queryKey: ["calibration-rows"] });
+      await queryClient.invalidateQueries({ queryKey: ["calibration"] });
+      toast.success("Calibration reset — it will relearn from new timed steps.");
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Couldn't reset calibration");
+    } finally {
+      setBusy(false);
+      setConfirming(false);
+    }
+  }
+
   return (
     <section className="map-card" aria-labelledby="calib-title">
-      <h2 id="calib-title">Your pace</h2>
-      <p className="map-sub">Learned from timed steps. Above x1.00 means you take longer than the default estimate.</p>
-      {q.isLoading ? <p className="map-empty" role="status">Loading…</p> : q.isError ? <p className="map-empty" role="alert">Couldn't load calibration.</p> : (
+      <h2 id="calib-title">Calibration</h2>
+      <p className="map-sub">Learned from timed steps. Above ×1.00 means you take longer than the default estimate.</p>
+      {q.isLoading ? (
+        <p className="map-empty" role="status">Loading…</p>
+      ) : q.isError ? (
+        <p className="map-empty" role="alert">Couldn't load calibration.</p>
+      ) : q.data!.length === 0 ? (
+        <p className="map-empty">No calibration yet — it builds as you use the timer.</p>
+      ) : (
         <ul className="calib-list">
           {q.data!.map((r) => (
-            <li key={r.type}>
-              <span>{r.usable >= MIN_SAMPLES ? `${r.type} x${r.multiplier.toFixed(2)}` : r.type}</span>
-              <span className="map-sub">{r.usable >= MIN_SAMPLES ? `${r.usable} timed steps` : `not enough timed steps yet (${r.usable} of ${MIN_SAMPLES})`}</span>
+            <li key={r.item_type}>
+              <span>{r.item_type} ×{Number(r.multiplier).toFixed(2)}</span>
+              <span className="map-sub">{r.sample_count} samples</span>
             </li>
           ))}
         </ul>
       )}
+      {q.data && q.data.length > 0 && (
+        <div style={{ marginTop: 12 }}>
+          {confirming ? (
+            <div className="exec-actions">
+              <button type="button" className="exec-btn behind-accept" onClick={doReset} disabled={busy}>
+                {busy ? "Resetting…" : "Confirm reset"}
+              </button>
+              <button type="button" className="exec-btn exec-stopped" onClick={() => setConfirming(false)} disabled={busy}>
+                Keep calibration
+              </button>
+            </div>
+          ) : (
+            <button type="button" className="exec-btn exec-stopped" onClick={() => setConfirming(true)}>
+              Reset calibration
+            </button>
+          )}
+        </div>
+      )}
+    </section>
+  );
+}
+
+// ---------- E. Connection and data ----------
+function ConnectionCard() {
+  const queryClient = useQueryClient();
+  const connectionQ = useQuery({ queryKey: ["lms-connection"], queryFn: getLmsConnection });
+  const [syncing, setSyncing] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [resetTyped, setResetTyped] = useState("");
+  const [resetting, setResetting] = useState(false);
+  const [resetDone, setResetDone] = useState(false);
+  const demo = getProviderState().demo;
+
+  const connection = connectionQ.data ?? null;
+
+  async function syncNow() {
+    setSyncing(true);
+    try {
+      const live = await syncLmsNow();
+      await queryClient.invalidateQueries();
+      toast.success(live ? "Synced with Moodle." : "Demo data is showing — nothing to sync.");
+    } catch {
+      toast.error("Moodle sync could not finish. Your saved work is unchanged.");
+    } finally {
+      setSyncing(false);
+    }
+  }
+
+  async function disconnect() {
+    if (!connection) return;
+    setBusy(true);
+    try {
+      await removeLmsConnection(connection.id);
+      resetLmsProvider();
+      await queryClient.invalidateQueries();
+      toast.success("Disconnected from Moodle. Your saved work is kept.");
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Couldn't disconnect");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  function toggleDemo(on: boolean) {
+    setUseDemoData(on);
+    void queryClient.resetQueries({ queryKey: ["lms"] });
+    void queryClient.invalidateQueries();
+  }
+
+  async function doResetAll() {
+    if (!canResetData(resetTyped)) return;
+    setResetting(true);
+    try {
+      await resetAllAppData();
+      resetLmsProvider();
+      await queryClient.invalidateQueries();
+      setResetDone(true);
+      setResetTyped("");
+      toast.success("Data cleared — press Sync now to rebuild from Moodle.");
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Couldn't clear data");
+    } finally {
+      setResetting(false);
+    }
+  }
+
+  return (
+    <section className="map-card" aria-labelledby="connection-title">
+      <h2 id="connection-title">Connection and data</h2>
+
+      {connectionQ.isLoading ? (
+        <p className="map-empty" role="status">Loading connection…</p>
+      ) : connection ? (
+        <div className="settings-form" style={{ gridTemplateColumns: "1fr" }}>
+          <label>Moodle site
+            <input type="text" value={connection.site_url ?? "—"} readOnly aria-readonly="true" />
+          </label>
+          <p className="map-sub" style={{ marginTop: -8 }}>
+            Connected {new Date(connection.connected_at).toLocaleDateString(undefined, { year: "numeric", month: "short", day: "numeric" })}
+          </p>
+          <div className="exec-actions">
+            <button type="button" className="exec-btn behind-accept" onClick={syncNow} disabled={syncing}>
+              {syncing ? <Loader2 size={16} aria-hidden="true" className="map-spin" /> : <RefreshCw size={16} aria-hidden="true" />}
+              {syncing ? "Syncing…" : "Sync now"}
+            </button>
+            <button type="button" className="exec-btn exec-stopped" onClick={disconnect} disabled={busy}>
+              <Unplug size={16} aria-hidden="true" />{busy ? "Disconnecting…" : "Disconnect"}
+            </button>
+          </div>
+        </div>
+      ) : (
+        <p className="map-empty">No Moodle connection yet — use the Connect tab to add one.</p>
+      )}
+
+      <label className="demo-data-control" htmlFor="settings-use-demo-data" style={{ marginTop: 12 }}>
+        <Switch id="settings-use-demo-data" checked={demo} onCheckedChange={toggleDemo} />
+        Use demo data
+      </label>
+
+      <div className="settings-danger" role="group" aria-labelledby="danger-title">
+        <h3 id="danger-title">Danger zone</h3>
+        {resetDone ? (
+          <p className="map-sub" role="status">Data cleared — press Sync now to rebuild from Moodle.</p>
+        ) : (
+          <>
+            <p className="map-sub">
+              Deletes your courses, assignments, steps, estimates, detections, allocations, activity and calibration.
+              Your settings and Moodle connection are kept, and you stay signed in.
+            </p>
+            <label>Type RESET to enable
+              <input type="text" value={resetTyped} onChange={(e) => setResetTyped(e.target.value)}
+                placeholder="RESET" autoComplete="off" aria-describedby="danger-title" />
+            </label>
+            <button type="button" className="exec-btn exec-danger" onClick={doResetAll}
+              disabled={!canResetData(resetTyped) || resetting}>
+              {resetting ? "Clearing…" : "Reset all app data"}
+            </button>
+          </>
+        )}
+      </div>
     </section>
   );
 }
