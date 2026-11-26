@@ -29,3 +29,6 @@
 - Connected LMS views use MoodleProvider with repository-backed UUIDs and bounded, deduplicated background sync; failures keep saved plans readable without substituting demo rows.
 - Provider selection and the account-local demo preference are managed in the LMS layer; the shell owns the toggle and cached-data notice so view components remain source-agnostic.
 - Detected items reference their assignment and persist manual-edit status; this avoids ambiguous title matching and preserves overrides on sync.
+
+## Security evidence
+- Security cases live in `src/security/` and run through `scripts/security-run.mjs`; use demo data, fixtures, and anonymous probes only, never AI or a live LMS. The JSON feeds the owner-only `/test-report` route and the on-demand PDF generator, which skips missing evidence images.

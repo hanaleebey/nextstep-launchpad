@@ -13,6 +13,7 @@ import { Route as AuthenticatedRouteRouteImport } from './routes/_authenticated/
 import { Route as AuthRouteImport } from './routes/auth'
 import { Route as AuthenticatedIndexRouteImport } from './routes/_authenticated/index'
 import { Route as AuthenticatedSettingsRouteImport } from './routes/_authenticated/settings'
+import { Route as AuthenticatedTestReportRouteImport } from './routes/_authenticated/test-report'
 
 const AuthenticatedRouteRoute = AuthenticatedRouteRouteImport.update({
   id: '/_authenticated',
@@ -33,15 +34,22 @@ const AuthenticatedSettingsRoute = AuthenticatedSettingsRouteImport.update({
   path: '/settings',
   getParentRoute: () => AuthenticatedRouteRoute,
 } as any)
+const AuthenticatedTestReportRoute = AuthenticatedTestReportRouteImport.update({
+  id: '/test-report',
+  path: '/test-report',
+  getParentRoute: () => AuthenticatedRouteRoute,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof AuthenticatedIndexRoute
   '/auth': typeof AuthRoute
   '/settings': typeof AuthenticatedSettingsRoute
+  '/test-report': typeof AuthenticatedTestReportRoute
 }
 export interface FileRoutesByTo {
   '/auth': typeof AuthRoute
   '/settings': typeof AuthenticatedSettingsRoute
+  '/test-report': typeof AuthenticatedTestReportRoute
   '/': typeof AuthenticatedIndexRoute
 }
 export interface FileRoutesById {
@@ -49,18 +57,20 @@ export interface FileRoutesById {
   '/_authenticated': typeof AuthenticatedRouteRouteWithChildren
   '/auth': typeof AuthRoute
   '/_authenticated/settings': typeof AuthenticatedSettingsRoute
+  '/_authenticated/test-report': typeof AuthenticatedTestReportRoute
   '/_authenticated/': typeof AuthenticatedIndexRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/' | '/auth' | '/settings'
+  fullPaths: '/' | '/auth' | '/settings' | '/test-report'
   fileRoutesByTo: FileRoutesByTo
-  to: '/auth' | '/settings' | '/'
+  to: '/auth' | '/settings' | '/test-report' | '/'
   id:
     | '__root__'
     | '/_authenticated'
     | '/auth'
     | '/_authenticated/settings'
+    | '/_authenticated/test-report'
     | '/_authenticated/'
   fileRoutesById: FileRoutesById
 }
@@ -99,16 +109,25 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedSettingsRouteImport
       parentRoute: typeof AuthenticatedRouteRoute
     }
+    '/_authenticated/test-report': {
+      id: '/_authenticated/test-report'
+      path: '/test-report'
+      fullPath: '/test-report'
+      preLoaderRoute: typeof AuthenticatedTestReportRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
   }
 }
 
 interface AuthenticatedRouteRouteChildren {
   AuthenticatedSettingsRoute: typeof AuthenticatedSettingsRoute
+  AuthenticatedTestReportRoute: typeof AuthenticatedTestReportRoute
   AuthenticatedIndexRoute: typeof AuthenticatedIndexRoute
 }
 
 const AuthenticatedRouteRouteChildren: AuthenticatedRouteRouteChildren = {
   AuthenticatedSettingsRoute: AuthenticatedSettingsRoute,
+  AuthenticatedTestReportRoute: AuthenticatedTestReportRoute,
   AuthenticatedIndexRoute: AuthenticatedIndexRoute,
 }
 

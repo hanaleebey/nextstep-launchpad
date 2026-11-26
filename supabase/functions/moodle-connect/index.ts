@@ -16,6 +16,7 @@
 // "v1:<base64 iv>:<base64 ciphertext>".
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.4";
+import { validateMoodleConnectInput } from "./validation.ts";
 
 const CORS = {
   "Access-Control-Allow-Origin": "*",
@@ -32,18 +33,6 @@ function json(body: unknown, status = 200): Response {
 }
 function fail(code: string, message: string, status = 200): Response {
   return json({ ok: false, error: { code, message } }, status);
-}
-
-/** Normalise the site URL: require http(s), drop trailing slashes. */
-function normaliseSiteUrl(raw: unknown): string | null {
-  if (typeof raw !== "string") return null;
-  try {
-    const u = new URL(raw.trim());
-    if (u.protocol !== "https:" && u.protocol !== "http:") return null;
-    return `${u.origin}${u.pathname}`.replace(/\/+$/, "");
-  } catch {
-    return null;
-  }
 }
 
 const b64 = (bytes: Uint8Array) => btoa(String.fromCharCode(...bytes));
@@ -89,10 +78,9 @@ Deno.serve(async (req) => {
   } catch {
     return fail("BAD_REQUEST", "Request body must be JSON.", 400);
   }
-  const siteUrl = normaliseSiteUrl(body.siteUrl);
-  const token = typeof body.token === "string" ? body.token.trim() : "";
-  if (!siteUrl) return fail("BAD_REQUEST", "siteUrl must be a valid http(s) URL.", 400);
-  if (!token) return fail("BAD_REQUEST", "token is required.", 400);
+  const input = validateMoodleConnectInput(body.siteUrl, body.token);
+  if (!input.ok) return fail("BAD_REQUEST", input.message, 400);
+  const { siteUrl, token } = input;
 
   const keyB64 = Deno.env.get("MOODLE_TOKEN_KEY");
   if (!keyB64) return fail("NOT_CONFIGURED", "The encryption key is not set on the server.");
@@ -109,6 +97,7 @@ Deno.serve(async (req) => {
         moodlewsrestformat: "json",
       }),
       signal: AbortSignal.timeout(TIMEOUT_MS),
+      redirect: "error",
     });
     if (res.status === 403 || res.status === 404)
       return fail("WEB_SERVICES_DISABLED", "This site does not expose Moodle web services.");

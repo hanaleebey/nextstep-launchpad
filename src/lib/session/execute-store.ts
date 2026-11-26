@@ -30,14 +30,19 @@ export function stepKey(assignmentId: string, orderIndex: number): string {
   return `${assignmentId}:${orderIndex}`;
 }
 
-/** Record a status transition for a step and log how long it took. */
-export function finishStep(entry: FinishedStep) {
+/**
+ * Record one status transition per assignment/step key. Repeated clicks are
+ * idempotent: false tells Execute not to persist a duplicate database write.
+ */
+export function finishStep(entry: FinishedStep): boolean {
+  if (state.overrides[entry.key] !== undefined) return false;
   state = {
     ...state,
     overrides: { ...state.overrides, [entry.key]: entry.status },
     finished: [...state.finished, entry],
   };
   emit();
+  return true;
 }
 
 /** Ask Execute to work on a specific assignment next (null = back to most urgent). */

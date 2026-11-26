@@ -19,3 +19,12 @@
 # Assignment-specific planning
 - [x] AI generates every plan from the assignment's own instructions (no template steps); videos become one "Watch" step.
 - [x] Stop assignments showing more than once (duplicate saved courses/rows from earlier syncs).
+
+# Security test programme (phase 1)
+- [x] Add six security cases and a JSON-producing runner; never call AI or live Moodle.
+- [x] Run the attack pass, apply only minimal fixes, and verify fixes with a second run (4 BLOCKED, 2 MANUAL, 0 VULNERABLE).
+- [x] Add the owner-only /test-report evidence page and check it against the JSON with no console errors.
+- [x] Build but do not run the PDF generator; document exact public/evidence filenames.
+- [x] Run all 170 tests and verify fixture sign-in, demo Map, Execute, and Settings.
+- [ ] S2 authenticated second-user probe — blocked: the owner is the only authorised tester and no second authorised account/session is available.
+- [ ] S5 managed Auth 429 observation — blocked: 20 failed sign-ins returned 400, so the managed threshold was not reached; no ad-hoc rate limit will be added.

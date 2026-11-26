@@ -185,6 +185,10 @@ function ActionCard(props: {
 
   const queryClient = useQueryClient();
   function finish(status: StepStatus) {
+    // Claim this step once. Rapid repeated events for the same key must not
+    // duplicate calibration, session history, replans, or database writes.
+    const accepted = finishStep({ key: props.stepId, status, elapsedSeconds: elapsed, timeboxSeconds: total });
+    if (!accepted) return;
     // Calibration: Done and Stopped are completions; never 0 for an unstarted timer.
     if (status !== "blocked") {
       const sample = sampleFromCompletion(props.itemType, props.timeboxMinutes, elapsed, elapsed > 0);
@@ -194,7 +198,6 @@ function ActionCard(props: {
         else recordAndCalibrate(props.lmsAssignmentId, sample);
       }
     }
-    finishStep({ key: props.stepId, status, elapsedSeconds: elapsed, timeboxSeconds: total });
     // Persisted (Moodle) steps: one transactional write saves the step and
     // recomputes the assignment — the last step done completes it at 100%.
     if (props.dbStepId) {
