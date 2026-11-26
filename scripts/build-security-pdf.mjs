@@ -99,7 +99,7 @@ page.drawText("N", { x: M + 15, y: H - 100, size: 30, font: bold, color: rgb(1, 
 y = H - 154;
 text("NEXTSTEP", { size: 11, font: bold, color: PRIMARY, gap: 12 });
 heading("Security and robustness test report", 1);
-text("Attack, minimal fix, and independent re-attack evidence for the NextStep executive-function coach.", { size: 12, color: MUTED, gap: 24 });
+text("Attack, fix, block evidence for the NextStep executive-function coach.", { size: 12, color: MUTED, gap: 24 });
 rule();
 field("Project", report.project);
 field("Run date", new Date(report.runAt).toUTCString());
