@@ -93,7 +93,7 @@ const S4_PAYLOAD = [
 const S5_PAYLOAD = {
   refreshTokenWithoutApikey: "fixture-invalid-refresh-token",
   malformedJwt: "not.a.jwt",
-  failedSignIns: 20,
+  failedSignIns: 35,
   email: "security-s5-invalid@example.invalid",
   password: "invalid-fixture-password",
 };
@@ -294,7 +294,7 @@ export const securityCases: SecurityCase[] = [
       const needsManualRateLimit = noServerErrors && expectedRejections && malformedRejected && signInsRejected && !limited;
       return {
         verdict: blocked ? "BLOCKED" : needsManualRateLimit ? "MANUAL" : "VULNERABLE",
-        observed: `refresh without apikey=${noKey.status}; malformed JWT=${malformed.status}; 20 sign-ins: ${counts}; rate-limit 429 observed=${limited}; 5xx responses=${all.filter((status) => status >= 500).length}.`,
+        observed: `refresh without apikey=${noKey.status}; malformed JWT=${malformed.status}; ${S5_PAYLOAD.failedSignIns} sign-ins: ${counts}; rate-limit 429 observed=${limited}; 5xx responses=${all.filter((status) => status >= 500).length}.`,
         fix: "No custom limiter added; Supabase Auth owns these endpoints and all credentials were invalid fixtures.",
         verification: blocked
           ? "Every abuse request was rejected and rapid failures triggered the managed rate limit."

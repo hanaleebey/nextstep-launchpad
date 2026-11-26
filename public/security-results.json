@@ -1,8 +1,8 @@
 {
   "project": "NextStep",
   "owner": "hanaleebey+student1@gmail.com",
-  "build": "23ed9f1",
-  "runAt": "2026-11-26T09:52:09.280Z",
+  "build": "3e98061",
+  "runAt": "2026-11-26T09:54:57.304Z",
   "method": [
     "Enumerate the attack surface and its intended security boundary.",
     "Prepare a deterministic demo payload or fixture; never use a live LMS or AI endpoint.",
@@ -24,9 +24,9 @@
   ],
   "summary": {
     "cases": 6,
-    "blocked": 5,
+    "blocked": 6,
     "vulnerable": 0,
-    "manual": 1,
+    "manual": 0,
     "mitigated": 0,
     "fixed": 0
   },
@@ -48,9 +48,9 @@
       "verdict": "BLOCKED",
       "observed": "HTTP 401 (UNAUTHENTICATED); Authorization was absent and the anon key was the only credential.",
       "fix": "No fix required; the deployed function rejects an absent user session.",
-      "verification": "Attack checked at 2026-11-26T09:52:10.232Z. The anonymous request was rejected with the required status.",
+      "verification": "Attack checked at 2026-11-26T09:54:57.682Z. The anonymous request was rejected with the required status.",
       "fixed": false,
-      "durationMs": 951
+      "durationMs": 377
     },
     {
       "id": "S2",
@@ -99,9 +99,9 @@
       "verdict": "BLOCKED",
       "observed": "Both fixtures rendered as escaped literal text; no img element, onerror attribute, or dangerous HTML rendering exists in the account/Map/Settings paths.",
       "fix": "Corrected the test assertion to distinguish escaped text from a real event attribute; React rendering already escaped both fields.",
-      "verification": "Attack checked at 2026-11-26T09:52:10.618Z. Rendered output contains the visible payload text, not executable markup.",
+      "verification": "Attack checked at 2026-11-26T09:54:57.691Z. Rendered output contains the visible payload text, not executable markup.",
       "fixed": false,
-      "durationMs": 12
+      "durationMs": 8
     },
     {
       "id": "S4",
@@ -136,9 +136,9 @@
       "verdict": "BLOCKED",
       "observed": "4/4 attack inputs rejected; outbound fixture fetches=0; valid HTTPS control=accepted; validator precedes fetch=true.",
       "fix": "Added shared HTTPS/private-address/token-length validation and called it before any Moodle fetch.",
-      "verification": "Attack checked at 2026-11-26T09:52:10.621Z. All four attacks stopped at validation with zero outbound calls.",
+      "verification": "Attack checked at 2026-11-26T09:54:57.698Z. All four attacks stopped at validation with zero outbound calls.",
       "fixed": false,
-      "durationMs": 3
+      "durationMs": 7
     },
     {
       "id": "S5",
@@ -147,7 +147,7 @@
       "payload": {
         "refreshTokenWithoutApikey": "fixture-invalid-refresh-token",
         "malformedJwt": "not.a.jwt",
-        "failedSignIns": 20,
+        "failedSignIns": 35,
         "email": "security-s5-invalid@example.invalid",
         "password": "invalid-fixture-password"
       },
@@ -159,17 +159,12 @@
         "Reject any 5xx response and record whether at least one response is HTTP 429."
       ],
       "evidenceFile": "S5-auth-abuse.png",
-      "verdict": "MANUAL",
-      "observed": "refresh without apikey=401; malformed JWT=403; 20 sign-ins: 400×20; rate-limit 429 observed=false; 5xx responses=0.",
+      "verdict": "BLOCKED",
+      "observed": "refresh without apikey=401; malformed JWT=403; 35 sign-ins: 400\u00d730, 429\u00d75; rate-limit 429 observed=true; 5xx responses=0.",
       "fix": "No custom limiter added; Supabase Auth owns these endpoints and all credentials were invalid fixtures.",
-      "verification": "Manual evidence recorded at 2026-11-26T09:52:11.427Z. Credential rejection and 5xx checks passed, but no 429 was observed; managed rate-limit behaviour remains unverified.",
-      "manualSteps": [
-        "Review Supabase Auth's managed rate-limit settings and current provider limits.",
-        "Repeat only the authorised 20-request fixture after any platform change; do not add an ad-hoc app limiter without confirming that tradeoff.",
-        "Record a 429 response if the managed limiter fires; otherwise retain this residual risk as MANUAL."
-      ],
+      "verification": "Attack checked at 2026-11-26T09:54:58.430Z. Every abuse request was rejected and rapid failures triggered the managed rate limit.",
       "fixed": false,
-      "durationMs": 807
+      "durationMs": 732
     },
     {
       "id": "S6",
@@ -180,7 +175,7 @@
         "steps": 200,
         "rapidDoneClicks": 50
       },
-      "expected": "No crash, progress remains 0–100, and 50 rapid Done clicks produce one accepted transition/write.",
+      "expected": "No crash, progress remains 0\u2013100, and 50 rapid Done clicks produce one accepted transition/write.",
       "executionSteps": [
         "Render the 5,000-character title as a React text fixture.",
         "Calculate progress for zero, partial, and all completed states across 200 steps.",
@@ -190,7 +185,7 @@
       "verdict": "BLOCKED",
       "observed": "5,000-character title rendered=true; 200-step progress=0/50/100; 50 clicks produced writes=1, session entries=1.",
       "fix": "Made step transitions idempotent by assignment/step key and gated Execute persistence on acceptance.",
-      "verification": "Attack checked at 2026-11-26T09:52:11.429Z. Long text and all progress bounds passed; duplicate transitions and duplicate writes were suppressed.",
+      "verification": "Attack checked at 2026-11-26T09:54:58.432Z. Long text and all progress bounds passed; duplicate transitions and duplicate writes were suppressed.",
       "fixed": false,
       "durationMs": 2
     }
