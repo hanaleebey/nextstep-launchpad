@@ -5,6 +5,7 @@
 // Missing images never fail the build; a labelled placeholder is retained.
 import { readFile, writeFile } from "node:fs/promises";
 import { existsSync } from "node:fs";
+import { execFileSync } from "node:child_process";
 import { PDFDocument, StandardFonts, rgb } from "pdf-lib";
 
 const inputUrl = new URL("../public/security-results.json", import.meta.url);
@@ -171,7 +172,14 @@ for (const item of report.cases) {
   let embedded = false;
   if (existsSync(path)) {
     try {
-      const image = await pdf.embedPng(await readFile(path));
+      const bytes = await readFile(path);
+      // Uploaded screenshots can contain WebP bytes despite a .png filename.
+      // Convert in memory, preserving the original evidence files unchanged.
+      const isWebP = bytes.toString("ascii", 0, 4) === "RIFF" && bytes.toString("ascii", 8, 12) === "WEBP";
+      const pngBytes = isWebP
+        ? execFileSync("ffmpeg", ["-loglevel", "error", "-i", "pipe:0", "-frames:v", "1", "-f", "image2pipe", "-vcodec", "png", "pipe:1"], { input: bytes, maxBuffer: 32 * 1024 * 1024 })
+        : bytes;
+      const image = await pdf.embedPng(pngBytes);
       const scale = Math.min(BODY / image.width, 280 / image.height, 1);
       const drawWidth = image.width * scale;
       const drawHeight = image.height * scale;
