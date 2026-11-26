@@ -18,7 +18,7 @@ export interface CaseProse {
 
 export const reportTitle = "NextStep security and robustness report";
 export const reportSubtitle =
-  "What we attacked, what happened, and what changed — written for readers who do not write code.";
+  "What we attacked, what happened, and what changed, explained step by step.";
 
 export const inOnePage = [
   "We tried to break NextStep in six different ways, the same way a curious or hostile person might. We tried to use its private features without signing in, to read another student's coursework, to sneak harmful code into names and titles, to point the Moodle connection at places it should never reach, to hammer the sign-in page with guesses, and to overload the app with extreme input.",
