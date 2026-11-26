@@ -1,12 +1,13 @@
 #!/usr/bin/env node
 // Build the PDF only when explicitly requested:
 //   node scripts/build-security-pdf.mjs
-// Reads public/security-results.json and optional public/evidence/*.png files.
+// Reads public/security-results.json, prose from scripts/security-report-content.ts, and public/evidence/*.png.
 // Missing images never fail the build; a labelled placeholder is retained.
 import { readFile, writeFile } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import { execFileSync } from "node:child_process";
 import { PDFDocument, StandardFonts, rgb } from "pdf-lib";
+import * as content from "./security-report-content.ts";
 
 const inputUrl = new URL("../public/security-results.json", import.meta.url);
 const outputUrl = new URL("../public/security-test-report.pdf", import.meta.url);
@@ -22,9 +23,10 @@ pdf.setCreationDate(new Date(report.runAt));
 const regular = await pdf.embedFont(StandardFonts.Helvetica);
 const bold = await pdf.embedFont(StandardFonts.HelveticaBold);
 const mono = await pdf.embedFont(StandardFonts.Courier);
+const italic = await pdf.embedFont(StandardFonts.HelveticaOblique);
 const W = 595.28;
 const H = 841.89;
-const M = 46;
+const M = 64;
 const BODY = W - M * 2;
 const INK = rgb(0x0f / 255, 0x17 / 255, 0x2a / 255);
 const MUTED = rgb(0x64 / 255, 0x74 / 255, 0x8b / 255);
@@ -38,9 +40,9 @@ const RED = rgb(0xb9 / 255, 0x1c / 255, 0x1c / 255);
 // Standard PDF fonts are WinAnsi. Keep evidence readable without font glyphs
 // silently disappearing; the JSON remains the unmodified source of truth.
 const ascii = (value) => String(value ?? "")
-  .replace(/[×]/g, "x").replace(/[–—]/g, "-")
+  .replace(/[×]/g, "x").replace(/–/g, "-")
   .replace(/[‘’]/g, "'").replace(/[“”]/g, '"')
-  .replace(/…/g, "...").replace(/[^\x09\x0A\x0D\x20-\x7E]/g, "?");
+  .replace(/…/g, "...").replace(/[^\x09\x0A\x0D\x20-\x7E—]/g, "?");
 
 let page;
 let y;
@@ -72,7 +74,7 @@ const wrap = (value, size, maxWidth, font = regular) => {
   }
   return lines;
 };
-const space = (needed) => { if (y - needed < 58) newPage(); };
+const space = (needed) => { if (y - needed < 64) newPage(); };
 const text = (value, { size = 9.5, font = regular, color = INK, maxWidth = BODY, x = M, gap = 4, indent = 0 } = {}) => {
   const lineHeight = size * 1.42;
   for (const line of wrap(value, size, maxWidth - indent, font)) {
@@ -92,138 +94,113 @@ const bullets = (items, ordered = false) => items.forEach((item, index) => text(
 const field = (label, value, options = {}) => { heading(label, 3); text(value, options); };
 const verdictColor = (verdict) => verdict === "BLOCKED" ? GREEN : verdict === "MANUAL" ? AMBER : RED;
 
+
+// Everything below is layout. Prose comes from security-report-content.ts;
+// verdicts, timestamps and payloads come from security-results.json.
+const byId = Object.fromEntries(report.cases.map((item) => [item.id, item]));
+const buildDate = new Date(report.runAt).toISOString().slice(0, 10);
+const para = (value) => text(value, { size: 10.5, gap: 9 });
+
 // Cover.
 newPage();
-page.drawRectangle({ x: M, y: H - 116, width: 54, height: 54, color: PRIMARY });
-page.drawText("N", { x: M + 15, y: H - 100, size: 30, font: bold, color: rgb(1, 1, 1) });
-y = H - 154;
+page.drawRectangle({ x: M, y: H - 130, width: 54, height: 54, color: PRIMARY });
+page.drawText("N", { x: M + 15, y: H - 114, size: 30, font: bold, color: rgb(1, 1, 1) });
+y = H - 170;
 text("NEXTSTEP", { size: 11, font: bold, color: PRIMARY, gap: 12 });
-heading("Security and robustness test report", 1);
-text("Attack, fix, block evidence for the NextStep executive-function coach.", { size: 12, color: MUTED, gap: 24 });
+heading(content.reportTitle, 1);
+text(content.reportSubtitle, { size: 12, color: MUTED, gap: 28 });
 rule();
-field("Project", report.project);
-field("Run date", new Date(report.runAt).toUTCString());
-field("Build commit", report.build, { font: mono });
-field("Authorised owner", report.owner);
-field("Environment", "React + TypeScript + Vite; Supabase Auth, Postgres RLS, Edge Functions; demo data and fixtures only.");
-y -= 18;
-page.drawRectangle({ x: M, y: y - 82, width: BODY, height: 82, color: SURFACE2, borderColor: BORDER, borderWidth: 0.8 });
-text(`Cases: ${report.summary.cases}   BLOCKED: ${report.summary.blocked}   MANUAL: ${report.summary.manual}   VULNERABLE: ${report.summary.vulnerable}`, { x: M + 16, maxWidth: BODY - 32, size: 12, font: bold, gap: 8 });
-text(`Fixed only after a second run: ${report.summary.fixed}`, { x: M + 16, maxWidth: BODY - 32, size: 10, color: MUTED });
+field("Prepared by", "Audrie Hana Lee Bey, developer and sole authorised tester");
+field("Test run", new Date(report.runAt).toUTCString());
+field("Build", report.build, { font: mono });
+field("Result", `${report.summary.blocked} of ${report.summary.cases} attacks stopped on the final run; ${report.summary.vulnerable} still open.`, { font: bold, color: report.summary.vulnerable ? RED : GREEN });
 
-// Method, quoted exactly as the six programme steps.
+// Page 2: in one page.
 newPage();
-heading("Method", 1);
-text("The six-step attack pattern:", { size: 11, font: bold });
-report.method.forEach((step, index) => text(`"${index + 1}. ${step}"`, { font: regular, indent: 10, maxWidth: BODY - 10, gap: 5 }));
-heading("Scope and environment", 2);
-bullets(report.scope);
-text("No agent-estimate or other AI endpoint is called. No live LMS is required. No test writes another user's data.", { font: bold });
+heading("In one page", 1);
+content.inOnePage.forEach(para);
 
-// Dashboard: verification wraps in the final column rather than disappearing.
+// Page 3: glossary.
 newPage();
-heading("Results dashboard", 1);
-const cols = [32, 91, 67, 42, BODY - 232];
-const headers = ["ID", "Area", "Verdict", "Fixed", "Verification"];
-const tableRow = (values, fonts = regular, colors = INK) => {
-  const cellLines = values.map((value, i) => wrap(value, 7.5, cols[i] - 8, Array.isArray(fonts) ? fonts[i] : fonts));
-  const height = Math.max(...cellLines.map((lines) => lines.length)) * 10.5 + 10;
-  space(height);
-  cellLines.forEach((lines, i) => {
-    const x = M + cols.slice(0, i).reduce((sum, value) => sum + value, 0);
-    lines.forEach((line, lineIndex) => page.drawText(line, {
-      x: x + 4, y: y - 10 - lineIndex * 10.5, size: 7.5,
-      font: Array.isArray(fonts) ? fonts[i] : fonts,
-      color: Array.isArray(colors) ? colors[i] : colors,
-    }));
-  });
-  page.drawLine({ start: { x: M, y: y - height }, end: { x: W - M, y: y - height }, thickness: 0.5, color: BORDER });
-  y -= height;
-};
-tableRow(headers, bold, MUTED);
-for (const item of report.cases) tableRow(
-  [item.id, item.area, item.verdict, item.fixed ? "yes" : "no", item.verification],
-  [bold, regular, bold, regular, regular],
-  [INK, INK, verdictColor(item.verdict), INK, MUTED],
-);
+heading("Six terms used in this report", 1);
+for (const [term, meaning] of content.glossary) { text(term, { size: 11, font: bold, gap: 2 }); text(meaning, { size: 10.5, gap: 12 }); }
 
-// One labelled section per case, with exact JSON payload and execution steps.
-for (const item of report.cases) {
+// Method.
+newPage();
+heading("How every attack was run", 1);
+para(content.methodIntro);
+content.methodSteps.forEach((step, index) => text(`${index + 1}.  ${step}`, { size: 10.5, indent: 10, maxWidth: BODY - 10, gap: 7 }));
+y -= 6;
+para(content.methodScope);
+
+// One section per case.
+let figure = 0;
+for (const prose of content.cases) {
+  const item = byId[prose.id];
   newPage();
-  text(item.id, { size: 10, font: bold, color: PRIMARY, gap: 4 });
-  heading(item.area, 1);
-  text(item.verdict + (item.fixed ? " - FIXED AND RE-ATTACKED" : ""), { size: 12, font: bold, color: verdictColor(item.verdict) });
-  field("Attack surface", item.attackSurface);
-  field("Expected", item.expected);
-  field("Exact payload", JSON.stringify(item.payload, null, 2), { font: mono, size: 7.5 });
-  field("Execution steps", "");
-  bullets(item.executionSteps, true);
-  field("Observed outcome", item.observed);
-  field("Verdict", item.verdict, { font: bold, color: verdictColor(item.verdict) });
-  field("Fix applied", item.fix);
-  field("Verification after re-attack", item.verification);
-  if (item.manualSteps?.length) {
-    field("MANUAL owner steps", "");
-    bullets(item.manualSteps, true);
-  }
-  heading("Screenshot evidence", 2);
-  const filename = item.evidenceFile;
-  const path = evidenceUrl(filename);
-  let embedded = false;
-  if (existsSync(path)) {
-    try {
-      const bytes = await readFile(path);
-      // Uploaded screenshots can contain WebP bytes despite a .png filename.
-      // Convert in memory, preserving the original evidence files unchanged.
-      const isWebP = bytes.toString("ascii", 0, 4) === "RIFF" && bytes.toString("ascii", 8, 12) === "WEBP";
-      const pngBytes = isWebP
-        ? execFileSync("ffmpeg", ["-loglevel", "error", "-i", "pipe:0", "-frames:v", "1", "-f", "image2pipe", "-vcodec", "png", "pipe:1"], { input: bytes, maxBuffer: 32 * 1024 * 1024 })
-        : bytes;
-      const image = await pdf.embedPng(pngBytes);
-      const scale = Math.min(BODY / image.width, 280 / image.height, 1);
-      const drawWidth = image.width * scale;
-      const drawHeight = image.height * scale;
-      space(drawHeight + 26);
-      page.drawImage(image, { x: M, y: y - drawHeight, width: drawWidth, height: drawHeight });
-      y -= drawHeight + 8;
-      text(`Embedded public/evidence/${filename}`, { size: 8, color: MUTED });
-      embedded = true;
-    } catch (error) {
-      console.warn(`${item.id}: could not embed ${filename}; placeholder kept (${error.message})`);
-    }
-  }
-  if (!embedded) {
-    space(112);
-    page.drawRectangle({ x: M, y: y - 94, width: BODY, height: 94, borderColor: BORDER, borderWidth: 1, color: SURFACE2 });
-    text("Screenshot placeholder", { x: M + 14, maxWidth: BODY - 28, size: 11, font: bold, color: MUTED, gap: 3 });
-    text(`Insert public/evidence/${filename}`, { x: M + 14, maxWidth: BODY - 28, size: 9, font: mono, color: INK });
-    y -= 94;
+  text(`${prose.id}  ·  ${item.verdict === "BLOCKED" ? "Stopped" : item.verdict}`.replace("·", "-"), { size: 10, font: bold, color: verdictColor(item.verdict), gap: 4 });
+  heading(prose.title, 2);
+  const sections = [
+    ["What this attack is", prose.whatItIs],
+    ["Why it matters", prose.whyItMatters],
+    ["How we tested it", prose.howTested],
+    ["What happened", prose.whatHappened],
+    ["The fix", prose.theFix],
+    ["Proof it is fixed", `${prose.proofLead} ${item.verification}`],
+  ];
+  for (const [label, value] of sections) { heading(label, 3); text(value, { size: 10, gap: 6 }); }
+  figure += 1;
+  const path = evidenceUrl(item.evidenceFile);
+  if (!existsSync(path)) { console.warn(`${item.id}: ${item.evidenceFile} missing; figure skipped.`); continue; }
+  try {
+    const bytes = await readFile(path);
+    // Uploaded screenshots can contain WebP bytes despite a .png filename.
+    const isWebP = bytes.toString("ascii", 0, 4) === "RIFF" && bytes.toString("ascii", 8, 12) === "WEBP";
+    const pngBytes = isWebP
+      ? execFileSync("ffmpeg", ["-loglevel", "error", "-i", "pipe:0", "-frames:v", "1", "-f", "image2pipe", "-vcodec", "png", "pipe:1"], { input: bytes, maxBuffer: 32 * 1024 * 1024 })
+      : bytes;
+    const image = await pdf.embedPng(pngBytes);
+    const scale = Math.min(BODY / image.width, 230 / image.height, 1);
+    const w = image.width * scale, h = image.height * scale;
+    y -= 6;
+    space(h + 24);
+    page.drawRectangle({ x: M + (BODY - w) / 2 - 1, y: y - h - 1, width: w + 2, height: h + 2, borderColor: BORDER, borderWidth: 0.8 });
+    page.drawImage(image, { x: M + (BODY - w) / 2, y: y - h, width: w, height: h });
+    y -= h + 8;
+    const cap = prose.caption;
+    text(cap, { size: 9, font: italic, color: MUTED, x: M + (BODY - width(cap, 9, italic)) / 2 });
+  } catch (error) {
+    console.warn(`${item.id}: could not embed ${item.evidenceFile} (${error.message})`);
   }
 }
 
+// What this report does not prove.
 newPage();
-heading("Residual risks and remaining MANUAL work", 1);
-bullets(report.residualRisks);
-const manual = report.cases.filter((item) => item.verdict === "MANUAL");
-if (manual.length) {
-  heading("MANUAL cases", 2);
-  for (const item of manual) {
-    text(`${item.id} - ${item.area}`, { font: bold, size: 11, color: AMBER });
-    bullets(item.manualSteps ?? item.executionSteps, true);
-  }
-} else text("No MANUAL cases remain.", { color: GREEN, font: bold });
+heading("What this report does not prove", 1);
+para(content.notProven);
 
-// Running footer and page numbers on every page, including the cover.
+// Technical appendix.
+newPage();
+heading("Technical appendix", 1);
+text("Raw identifiers, endpoints and exact inputs, for readers who want them. Long inputs are shortened.", { size: 9.5, color: MUTED, gap: 10 });
+const short = (value) => { const s = JSON.stringify(value); return s.length > 260 ? `${s.slice(0, 240)}... (${s.length} chars)` : s; };
+for (const item of report.cases) {
+  space(80);
+  text(`${item.id}  ${item.area}  ${item.verdict}`, { size: 9.5, font: bold, gap: 2 });
+  text(`Endpoint: ${item.attackSurface}`, { size: 8, gap: 2 });
+  text(`Payload: ${short(item.payload)}`, { size: 7, font: mono, gap: 2 });
+  text(`Observed: ${item.observed}`, { size: 8, color: MUTED, gap: 4 });
+  rule();
+}
+
+// Running footer with page number and build date.
 const pages = pdf.getPages();
 pages.forEach((entry, index) => {
-  entry.drawLine({ start: { x: M, y: 42 }, end: { x: W - M, y: 42 }, thickness: 0.6, color: BORDER });
-  entry.drawText("NextStep - Security and robustness test programme", { x: M, y: 27, size: 7.5, font: regular, color: MUTED });
+  entry.drawLine({ start: { x: M, y: 46 }, end: { x: W - M, y: 46 }, thickness: 0.6, color: BORDER });
+  entry.drawText(`NextStep security report  -  build ${report.build}, ${buildDate}`, { x: M, y: 31, size: 7.5, font: regular, color: MUTED });
   const label = `Page ${index + 1} of ${pages.length}`;
-  entry.drawText(label, { x: W - M - width(label, 7.5), y: 27, size: 7.5, font: regular, color: MUTED });
+  entry.drawText(label, { x: W - M - width(label, 7.5), y: 31, size: 7.5, font: regular, color: MUTED });
 });
 
 await writeFile(outputUrl, await pdf.save());
 console.log(`Wrote public/security-test-report.pdf (${pages.length} pages).`);
-for (const item of report.cases) {
-  if (!existsSync(evidenceUrl(item.evidenceFile))) console.log(`${item.id}: public/evidence/${item.evidenceFile} missing; labelled placeholder used.`);
-}
