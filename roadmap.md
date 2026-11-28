@@ -1,3 +1,10 @@
+# Reproducible clean-clone packaging
+- [ ] Audit migrations against code and live schema; add missing schema through the migration tool.
+- [ ] Add idempotent local demo seed and local Supabase configuration.
+- [ ] Add environment templates, remove committed project-specific credentials/configuration, and document audit findings.
+- [ ] Verify credential-free demo/fallback paths and function completeness without calling AI or Moodle.
+- [ ] Replace README with an accurate setup guide and record verification limits.
+
 # Connect onboarding
 - [x] Implement MoodleProvider with cached-row fallback and bounded background sync.
 - [x] Add shell-only demo toggle and non-blocking cached-data notice; leave views unchanged.
