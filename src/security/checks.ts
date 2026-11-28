@@ -50,8 +50,8 @@ async function measured(run: () => Promise<PendingResult>): Promise<Result> {
   }
 }
 
-const SUPABASE_URL = process.env["SUPABASE_URL"] ?? "https://jwhoiwcfbgbshpznwcjo.supabase.co";
-const ANON_KEY = process.env["SUPABASE_PUBLISHABLE_KEY"] ?? "";
+const SUPABASE_URL = process.env["SUPABASE_URL"] ?? process.env["VITE_SUPABASE_URL"] ?? "";
+const ANON_KEY = process.env["SUPABASE_PUBLISHABLE_KEY"] ?? process.env["VITE_SUPABASE_PUBLISHABLE_KEY"] ?? "";
 const FIXTURE_USER_A = "00000000-0000-4000-8000-0000000000a1";
 const FIXTURE_ASSIGNMENT_A = "00000000-0000-4000-8000-0000000000a2";
 const XSS_PAYLOAD = "<img src=x onerror=alert(1)>";
@@ -123,8 +123,8 @@ export const securityCases: SecurityCase[] = [
     ],
     evidenceFile: "S1-unauth-function.png",
     run: () => measured(async () => {
-      if (!ANON_KEY) return {
-        verdict: "MANUAL", observed: "SUPABASE_PUBLISHABLE_KEY is unavailable to the runner.",
+      if (!SUPABASE_URL || !ANON_KEY) return {
+        verdict: "MANUAL", observed: "Supabase URL or public key is unavailable to the runner.",
         fix: "No app change applied.", verification: "Provide the existing publishable key to the runner and repeat the anonymous POST.",
         manualSteps: ["Run the runner from the project where SUPABASE_PUBLISHABLE_KEY is already configured."],
       };
@@ -152,7 +152,7 @@ export const securityCases: SecurityCase[] = [
     evidenceFile: "S2-cross-tenant.png",
     run: () => measured(async () => {
       const token = process.env["SECURITY_TEST_ACCESS_TOKEN"];
-      if (!token) return {
+      if (!token || !SUPABASE_URL || !ANON_KEY) return {
         verdict: "MANUAL",
         observed: "No signed-in owner token is available. RLS policies for assignments, courses, and steps are present in migrations, but no cross-tenant pass is claimed.",
         fix: "No code change applied; owner-session evidence is required.",
@@ -268,6 +268,10 @@ export const securityCases: SecurityCase[] = [
     ],
     evidenceFile: "S5-auth-abuse.png",
     run: () => measured(async () => {
+      if (!SUPABASE_URL || !ANON_KEY) return {
+        verdict: "MANUAL", observed: "Supabase URL or public key is unavailable to the runner.",
+        fix: "No app change applied.", verification: "Configure your own Supabase public URL and key before testing Auth.",
+      };
       const noKey = await fetch(`${SUPABASE_URL}/auth/v1/token?grant_type=refresh_token`, {
         method: "POST", headers: jsonHeaders(false), body: JSON.stringify({ refresh_token: S5_PAYLOAD.refreshTokenWithoutApikey }),
         signal: AbortSignal.timeout(15_000),

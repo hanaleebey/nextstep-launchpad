@@ -1,596 +1,569 @@
 # NextStep
 
-An executive-function coach for college students with ADHD. NextStep pulls real coursework from **Moodle**, estimates how long each piece of material will take without asking the student, breaks assignments into tiny timeboxed steps, and re-plans the moment the student falls behind.
+NextStep is an executive-function coach for college students with ADHD, built by Audrie Hana Lee Bey. It reduces the repeated decision of what to do next by presenting one actionable, timeboxed step from a student's coursework. It combines Moodle ingestion, effort estimates, capacity allocation, progress tracking and re-planning, rather than acting as a conventional calendar or task list.
+
+## The five tabs
+
+| Tab | Purpose |
+| --- | --- |
+| **Map** | Assignments, deadlines, steps, progress, buffer badges, a seven-day timeline and activity. |
+| **Execute** | One next action, completion criteria, timer and Done / Blocked / Stopped controls. |
+| **Running behind** | At-risk work, a recommended re-plan, deadline impact and recorded actions. |
+| **Connect** | Connect Moodle, detect work, then confirm a plan. |
+| **Settings** | Account, weekly capacity, timezone, planning preferences, calibration, connection and demo controls. |
 
-It is **not** a scheduler. Two ideas define it:
+**Actual stack:** React 19, TypeScript, TanStack Start/Router, Vite, Tailwind CSS and shadcn/ui; Supabase Postgres/Auth and three existing Deno Edge Functions. The browser does not call Moodle or the model provider directly.
 
-1. **Decision offloading** — the app decides the order and hands over a single next action, so the student never faces _"what should I do next?"_
-2. **Timeboxing by construction** — every step has a fixed budget. _"Stop at 25 minutes, done or not"_ defeats Parkinson's law and perfectionism.
+> **Reproducibility status:** this guide distinguishes working paths from outstanding limitations. The browser previously hardcoded the original Supabase project; it now reads your environment. Missing live-schema changes have an appended migration. A local SQL seed has been added. Docker-backed reset, deployment/source parity and a fully populated credential-free **database-backed** demo are not certified; see [verification status](#verification-status-and-clean-clone-audit). No product rules or presentation have been changed to hide those limitations.
 
----
+## Prerequisites
+
+Supabase is a service that supplies a PostgreSQL database, sign-in and a place to run server-side functions. You can use its hosted free tier or run its services locally with Docker.
 
-## Contents
+| Item | Required? | Cost | Typical setup time |
+| --- | --- | --- | --- |
+| Git | Yes, to clone | Free | 5 minutes |
+| Node.js **22.23.5** and npm | Yes | Free | 5–10 minutes |
+| Supabase CLI | Yes, for schema/functions | Free; `npx` can run it | 5 minutes |
+| Supabase account + new project | Required for hosted setup; not for fully local services | Free tier available; paid plans optional | 10 minutes |
+| Docker Desktop or compatible Docker engine | Only for local Supabase/reset/functions | Personal-use options available; business licensing varies | 10–20 minutes plus image downloads |
+| Model provider account/API key | Optional for the app; required for AI-only assignment planning/rebuilding | Groq/Gemini have quota-limited free options; paid usage varies | 5–15 minutes |
+| Google Cloud project + YouTube Data API v3 key | Optional | API quota applies; check current Google terms | 10–20 minutes |
+| Moodle site with administrator-authorised REST web services | Optional for mock evaluation; required for live ingestion | Self-hosted Moodle software is free; hosting/site plans vary | 30–60 minutes if you control the site; institution approval can take longer |
+| Moodle enrolled student + service-bound token | Only for live ingestion | Usually no separate key fee | 10–20 minutes after admin setup |
+
+Use `nvm use` if you have nvm; `.nvmrc` pins the tested Node version. TanStack Start requires Node ≥22.12; use the pinned version because the security/report scripts import TypeScript directly using Node's type stripping. Node 18 and Node 20 are **not** supported for this checkout.
+
+## Quick start — already-configured hosted Supabase
+
+Use a **new or explicitly disposable project** when evaluating migrations. Do not reset someone else's project.
+
+```bash
+git clone <your-repo-url> nextstep
+cd nextstep
+nvm use                     # optional, if nvm is installed
+npm install
+cp .env.example .env
+# Fill in .env with YOUR Supabase URL and public key, as described below.
+npx supabase login
+npx supabase link --project-ref <your-project-ref>
+npx supabase db push
+npm run dev
+```
+
+For live Moodle/AI, complete the secret setup before deploying:
+
+```bash
+npx supabase secrets set --env-file supabase/functions/.env
+npx supabase functions deploy agent-estimate
+npx supabase functions deploy moodle-connect
+npx supabase functions deploy moodle-sync
+```
+
+For mock evaluation, functions and external keys are not needed. Sign up and use **Settings → Connection and data → Use demo data**. See the exact demo limits below.
+
+## Step-by-step hosted setup
+
+### 1. Create your Supabase project
+
+1. Open [Supabase](https://supabase.com), sign in, select an organisation and choose **New project**.
+2. Choose a project name, database password and region. Keep the password in a password manager.
+3. After provisioning, open **Project Settings → Data API** for the Project URL. In some dashboard versions the URL is under **API**.
+4. Open **Project Settings → API Keys** and copy the publishable key or legacy `anon` key. **Do not use a secret or service-role key in the browser.**
+5. Copy the project reference from **Project Settings → General** for `supabase link`.
+6. Open **Authentication → URL Configuration** and set the Site URL and redirect allow-list to the exact local URL Vite prints. Add your deployment URL when you host the app.
+7. Hosted email confirmation may be enabled: confirm the signup email before signing in. For a disposable local evaluation only, confirmation can be disabled under **Authentication → Sign In / Providers → Email** (older dashboards: **Providers → Email**).
+
+### 2. Configure the front end
+
+```bash
+cp .env.example .env
+```
+
+Edit the two values in `.env`:
+
+```dotenv
+VITE_SUPABASE_URL=<your-project-api-url>
+VITE_SUPABASE_PUBLISHABLE_KEY=<your-public-publishable-or-anon-key>
+```
+
+These are exactly the names read by `src/integrations/supabase/client.ts`. `VITE_SUPABASE_ANON_KEY` is **not** read. There is no hardcoded project fallback. Restart your local Vite process after changing `.env`.
+
+**Every `VITE_` value is public and visible in the browser. Secrets must never have that prefix.** RLS protects rows; hiding a public API key does not replace RLS.
+
+**Platform restriction:** this Lovable checkout requires its `.env` to remain tracked and blocks edits to `.gitignore`. Its public configuration is therefore still present in repository history/current tracked `.env`; an empty example does not remove that. In your independent GitHub clone, before adding private configuration, add the following ignore rules and remove `.env` from the index while keeping your local copy. This step cannot be performed inside this editor.
+
+```gitignore
+.env
+.env.*
+!.env.example
+supabase/functions/.env
+supabase/functions/.env.*
+!supabase/functions/.env.example
+supabase/.temp/
+supabase/.branches/
+```
 
-- [What you get](#what-you-get)
-- [Before you start: accounts and keys](#before-you-start-accounts-and-keys)
-- [Quick start](#quick-start)
-- [1. Get the code](#1-get-the-code)
-- [2. Create the Supabase backend](#2-create-the-supabase-backend)
-- [3. Configure environment variables](#3-configure-environment-variables)
-- [4. Create the database schema](#4-create-the-database-schema)
-- [5. Deploy the Edge Functions](#5-deploy-the-edge-functions)
-- [6. Set the Edge Function secrets](#6-set-the-edge-function-secrets)
-- [7. Get an AI model key](#7-get-an-ai-model-key)
-- [8. Get a YouTube Data API key](#8-get-a-youtube-data-api-key)
-- [9. Set up a Moodle site](#9-set-up-a-moodle-site)
-- [10. Run the app](#10-run-the-app)
-- [11. First-run walkthrough](#11-first-run-walkthrough)
-- [Using it without Moodle (demo mode)](#using-it-without-moodle-demo-mode)
-- [Running the backend entirely on your machine](#running-the-backend-entirely-on-your-machine)
-- [Environment variable reference](#environment-variable-reference)
-- [Project structure](#project-structure)
-- [Verifying your install](#verifying-your-install)
-- [Troubleshooting](#troubleshooting)
-- [Known limitations](#known-limitations)
-- [How the estimation and buffer logic works](#how-the-estimation-and-buffer-logic-works)
+```bash
+# Independent clone only; this platform refuses the equivalent operation.
+git rm --cached -- .env
+```
 
----
+Never put model, Moodle or encryption credentials in `.env` with a `VITE_` name. Do not commit an actual credential. Old commits retain previously tracked values; if a **private** credential was ever committed, revoke/rotate it. Do not rewrite the shared Lovable repository history.
 
-## What you get
+### 3. Apply the database schema
 
-Five tabs, one agent:
+```bash
+npx supabase login
+npx supabase link --project-ref <your-project-ref>
+npx supabase db push
+```
 
-| Tab                | What it does                                                                                                                                                    |
-| ------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Map**            | Semester overview: every assignment, deadline, decomposed step, progress, a buffer badge per assignment, a 7-day auto-scheduled timeline, and an activity feed. |
-| **Execute**        | One next-action card: the step, a "good-enough done" checklist, a countdown timer, and three buttons — **Done / Blocked / Stopped at timebox**.                 |
-| **Running behind** | Red alert when an assignment's buffer is exhausted, one recommended re-plan, the impact on every deadline, and a log of what the system did.                    |
-| **Connect**        | Three-step onboarding: connect your LMS → auto-detect work → confirm the plan.                                                                                  |
-| **Settings**       | Moodle connection, weekly available hours, timezone, manual estimate overrides, demo data and calibration toggles.                                              |
+Ordered migrations create **ten** tables, not nine: calibration needs `calibration_multipliers` as well.
 
-**Stack:** React + TypeScript + Tailwind CSS + shadcn/ui · Supabase Postgres + Edge Functions (Deno) · Moodle Web Services REST (read-only) · YouTube Data API v3 · any OpenAI-compatible LLM.
+| Table | Data |
+| --- | --- |
+| `users_settings` | Weekly hours, timezone, display name, default timebox and automatic planning preference. |
+| `lms_connections` | Provider, site URL and encrypted token. |
+| `courses` | Course names/codes and Moodle IDs. |
+| `assignments` | Title, deadline, status, estimates/source/manual flag, actual time, progress and buffer. |
+| `steps` | Assignment reference, order, instruction, timebox, JSON completion criteria, status and scheduled date. |
+| `estimate_events` | Estimate/actual samples, confidence, AI-refined flag and calibration inclusion/exclusion. |
+| `detected_items` | Detected type, signals, estimate, confidence, assignment reference, manual flag and details. |
+| `weekly_allocations` | Owner, assignment, Monday week start and allocated minutes. |
+| `activity_log` | Sync, estimate, re-plan, calibration and completion messages. |
+| `calibration_multipliers` | Per-owner, per-type learned multiplier and sample count. |
 
-**The app never breaks if the AI is unavailable.** Every estimate has a deterministic fallback path, and step decomposition has a built-in planner. A missing model key degrades output quality; it does not produce a broken app.
+Each table has explicit Data API grants and RLS. Parent rows are scoped to `auth.uid() = user_id`; `steps` and `estimate_events` inherit ownership through `owns_assignment(assignment_id)` because they do **not** have a `user_id` column. A `FOR ALL` owner policy covers reading, creation, editing and deletion. Completion RPCs check assignment ownership too.
 
----
+Migrations include the course `(user_id, lms_course_id)` uniqueness, assignment `(user_id, lms_assignment_id)` uniqueness, step assignment/order index and weekly user/week index. The appended migration restores the previously missing `detected_items.details`, `estimate_events.calibration_used` and `estimate_events.excluded_reason`; old migration files were not rewritten.
 
-## Before you start: accounts and keys
+In **Table Editor**, confirm all ten tables exist. `supabase db push` applies schema migrations, **not** the local seed. `supabase db reset` is the disposable-local reset path below, not an instruction to destroy a hosted database.
 
-| You need                                           | Why                                         | Strictly required?                                  | Cost                                             | Time      |
-| -------------------------------------------------- | ------------------------------------------- | --------------------------------------------------- | ------------------------------------------------ | --------- |
-| **Node.js 20 LTS** (18 minimum)                    | Run and build the front end                 | Yes                                                 | Free                                             | 5 min     |
-| **Git**                                            | Clone the repo                              | Yes                                                 | Free                                             | —         |
-| **Supabase account + project**                     | Database, auth, Edge Functions              | Yes                                                 | Free tier is enough                              | 10 min    |
-| **An AI provider API key**                         | AI-backed estimation and step decomposition | No — app works without it                           | Free tiers exist (Groq, Google AI Studio)        | 5 min     |
-| **Google Cloud project + YouTube Data API v3 key** | Real video durations for video assignments  | No — falls back to a 20-min low-confidence estimate | Free (10,000 units/day)                          | 15 min    |
-| **A Moodle site where you are admin**              | The LMS the app reads from                  | No — demo mode covers evaluation                    | Free (Gnomio / MoodleCloud trial / local Docker) | 20–40 min |
+### 4. Prepare server-side secrets
 
-Everything below is free-tier friendly. No paid services are required to run NextStep locally.
+The editor blocked creation of `supabase/functions/.env.example`, reporting: **“New Supabase Edge Functions are not created in this TanStack project. Blocked paths: supabase/functions/.env.example.”** Existing functions are present, but the required template is still missing. Create it in your own clone using this exact template, then copy it to the ignored `.env` file:
 
-> **A note on scope.** This is a single-user capstone application, not a commercial multi-tenant product. It is designed to run against **your own** Supabase project and **your own** Moodle site. Multi-user accounts, LTI 1.3, calendar sync, mobile, and a Canvas provider are explicitly future work.
+```dotenv
+# Server-only secrets. NEVER prefix these with VITE_.
+# Optional AI provider key; required for AI-only rebuild/planning.
+MODEL_API_KEY=
+# OpenAI-compatible API root; omit the variable to use the OpenAI default.
+MODEL_BASE_URL=
+# Primary model ID; omit the variable to use gpt-4o-mini.
+MODEL_NAME=
+# Optional second model ID on the SAME provider.
+MODEL_NAME_FALLBACK=
+# Optional YouTube Data API v3 key for public video durations.
+YOUTUBE_API_KEY=
+# Moodle token encryption: base64 of exactly 32 random bytes, shared by connect/sync.
+MOODLE_TOKEN_KEY=
+```
 
----
+```bash
+cp supabase/functions/.env.example supabase/functions/.env
+```
 
-## Quick start
+Fill only the settings you use. **Remove unused blank optional model-setting lines** from the real `.env`: defaults use `??`, so an empty `MODEL_BASE_URL=` or `MODEL_NAME=` is not the same as an absent variable. `MODEL_API_KEY=` empty is treated as unconfigured.
 
-If you already have Supabase, an AI key, and Moodle configured, this is the whole thing:
+Generate the encryption secret **on your machine**:
 
-    git clone <your-repo-url> nextstep
-    cd nextstep
-    npm install
-    cp .env.example .env          # then fill in the two Supabase values
-    npx supabase link --project-ref <your-project-ref>
-    npx supabase db push
-    npx supabase functions deploy agent-estimate moodle-connect moodle-sync
-    npx supabase secrets set MODEL_API_KEY=... YOUTUBE_API_KEY=...
-    npm run dev
+```bash
+openssl rand -base64 32
+```
 
-Otherwise, work through sections 1–10 in order.
+Copy that result into `MOODLE_TOKEN_KEY` in the ignored function `.env`. Do not reuse a model API key as an encryption key. Both Moodle functions read **only `MOODLE_TOKEN_KEY`**, not `TOKEN_ENCRYPTION_KEY`. If you already have an encryption key, it must decode from base64 to exactly 32 bytes; a 64-character hex string is not the expected format. Changing the key makes saved tokens unreadable; reconnect Moodle after rotation.
 
----
+```bash
+npx supabase secrets set --env-file supabase/functions/.env
+npx supabase secrets list
+```
 
-## 1. Get the code
+Supabase supplies `SUPABASE_URL` and `SUPABASE_ANON_KEY` inside its functions. Do not overwrite them with another project's values. No custom `SUPABASE_SERVICE_ROLE_KEY` is needed by these three functions: they use the authenticated user's client/RLS.
 
-    git clone <your-repo-url> nextstep
-    cd nextstep
-    npm install
+### 5. Deploy the three existing functions
 
-> **Script names.** This README uses `npm run dev`, `npm run build`, and `npm run preview`. If your fork defines different names, use whatever is in the `scripts` block of `package.json`. The install command is unchanged.
+```bash
+npx supabase functions deploy agent-estimate
+npx supabase functions deploy moodle-connect
+npx supabase functions deploy moodle-sync
+npx supabase functions list
+```
 
----
+| Function | Input | Returned data |
+| --- | --- | --- |
+| `agent-estimate` | `{ mode: 'plan' \| 'refine', assignment }` | `{ minutes, confidence, steps }` or `{ error: { code, message } }`. Model failures use HTTP 200. Missing/invalid user authentication uses HTTP 401. |
+| `moodle-connect` | `{ siteUrl, token }` | Site/user identity on success; otherwise `{ ok: false, error: { code, message } }`. Stores AES-GCM ciphertext. |
+| `moodle-sync` | `{}` | `{ ok, partial, summary, warnings, items }` or `{ ok: false, partial: true, error }`. Reads the saved connection. |
 
-## 2. Create the Supabase backend
+All three read secrets through `Deno.env.get`, return CORS headers and check the caller with Supabase Auth `getUser()`. The config keeps gateway JWT verification enabled. If an authenticated request using a newer signing-key format is rejected by the **gateway** before reaching a handler, investigate the gateway verification mode; the handler's `getUser()` check must remain enabled. Do not treat disabling authentication as a fix.
 
-You have two options. Pick one.
+**Known robustness gaps, unchanged:** the connect handler's encryption operation has no error boundary for malformed keys; shared auth initialisation and some malformed upstream payloads can also throw outside the typed-error paths. Missing encryption keys do return `NOT_CONFIGURED`. Source parity with the currently deployed functions could not be checked because CLI download required a management access token. No function was deployed during this packaging review.
 
-### Option A — Hosted Supabase project (simplest)
+## Obtain each external credential
 
-1. Sign up at **supabase.com** and create a new project.
-2. Pick a region close to you and save the database password somewhere safe.
-3. Wait ~2 minutes for provisioning.
-4. Go to **Project Settings → General** and copy the **Reference ID** (looks like `abcdefghijklmnop`).
-5. Go to **Project Settings → API** and copy:
-   - the **Project URL** (looks like `https://abcdefghijklmnop.supabase.co`)
-   - the **anon / publishable** key (NOT the service_role key — never put that in the front end)
+### OpenAI-compatible model providers
 
-### Option B — Fully local Supabase (Docker)
+`agent-estimate` posts to `<MODEL_BASE_URL>/chat/completions` with a Bearer API key. Pick a model currently available to your account; these example IDs are configuration examples, not promises of future availability. A fallback model must be available on the same API root.
 
-Requires **Docker Desktop** running.
+| Provider | Click path | API root (`MODEL_BASE_URL`) | Example model ID |
+| --- | --- | --- | --- |
+| Groq | [Groq Console](https://console.groq.com) → **API Keys → Create API Key** | `https://api.groq.com/openai/v1` | `llama-3.3-70b-versatile` |
+| Gemini | [Google AI Studio](https://aistudio.google.com) → **Get API key / API keys → Create API key**, choose a Cloud project | `https://generativelanguage.googleapis.com/v1beta/openai` | `gemini-2.5-flash` |
+| OpenRouter | [OpenRouter](https://openrouter.ai) → profile → **Keys → Create Key** | `https://openrouter.ai/api/v1` | `openai/gpt-4o-mini` |
+| OpenAI | [OpenAI Platform](https://platform.openai.com) → select project → **API keys → Create new secret key**; configure billing if needed | `https://api.openai.com/v1` | `gpt-4o-mini` |
 
-    npx supabase start
+The project owner currently uses **Groq**. The code does not default to Groq: configure the base URL and model explicitly in the ignored function `.env`.
 
-This boots Postgres, Auth, Storage, and the Edge Function runtime on your machine and prints the local API URL, anon key, and service key. Keep that output — you need it in section 3. Stop it later with `npx supabase stop`.
+```dotenv
+MODEL_API_KEY=<your-provider-key>
+MODEL_BASE_URL=https://api.groq.com/openai/v1
+MODEL_NAME=llama-3.3-70b-versatile
+```
 
-> Increasingly, Lovable-generated projects are configured against a specific Supabase project ID. If you run into a client that ignores your `.env`, check `src/integrations/supabase/client.ts` — some builds hardcode the URL and key as fallbacks. Replace them with the `import.meta.env` variables shown in section 3.
+### YouTube Data API v3
 
----
-
-## 3. Configure environment variables
-
-Copy the example file and fill it in:
-
-    cp .env.example .env
-
-    VITE_SUPABASE_URL=https://abcdefghijklmnop.supabase.co
-    VITE_SUPABASE_ANON_KEY=eyJhbGciOi...your-anon-key...
-
-For **Option B**, use the values `supabase start` printed instead:
-
-    VITE_SUPABASE_URL=http://127.0.0.1:54321
-    VITE_SUPABASE_ANON_KEY=<local anon key printed by supabase start>
-
-**Rules that matter:**
-
-- Only variables prefixed `VITE_` reach the browser. They are **public** by design — the anon key is meant to be visible. Row Level Security is what protects the data.
-- **Never** prefix a secret with `VITE_`. The Moodle token, model key, and YouTube key live only in Supabase Edge Function secrets (section 6).
-- `.env` is git-ignored. `.env.example` is committed with empty values.
-
----
-
-## 4. Create the database schema
-
-The schema lives in `supabase/migrations/`.
-
-**Hosted:**
-
-    npx supabase link --project-ref <your-project-ref>
-    npx supabase db push
-
-**Local:**
-
-    npx supabase db reset
-
-`db reset` recreates the database, applies every migration in order, and loads `supabase/seed.sql` if one exists.
-
-This creates nine tables, all with Row Level Security scoped to `auth.uid()`:
-
-| Table                | Purpose                                                                             |
-| -------------------- | ----------------------------------------------------------------------------------- |
-| `users_settings`     | Weekly available hours, timezone                                                    |
-| `lms_connections`    | Provider, site URL, encrypted token, connected at                                   |
-| `courses`            | LMS course id, name, code                                                           |
-| `assignments`        | Due date, status, estimated/actual minutes, estimate source, progress, buffer state |
-| `steps`              | Order, title, timebox, done criteria, status (`todo`/`done`/`blocked`/`stopped`)    |
-| `estimate_events`    | Estimated vs actual minutes per item type — feeds calibration                       |
-| `detected_items`     | Auto-detected work items with signal value and confidence                           |
-| `weekly_allocations` | Per-item, per-week capacity slice for open-ended work                               |
-| `activity_log`       | Timestamped record of syncs, estimates, re-plans, calibrations                      |
-
-Verify in the Supabase dashboard under **Table Editor** — all nine should be listed, and every one should show RLS enabled.
-
----
-
-## 5. Deploy the Edge Functions
-
-Three functions, all in `supabase/functions/`:
-
-| Function         | Responsibility                                                                     |
-| ---------------- | ---------------------------------------------------------------------------------- |
-| `agent-estimate` | The only path to the LLM. Generates or refines timeboxed steps.                    |
-| `moodle-connect` | Validates a Moodle site URL + token, encrypts and stores the token.                |
-| `moodle-sync`    | Pulls courses, assignments, module items, quiz time limits, and YouTube durations. |
-
-**Hosted:**
-
-    npx supabase functions deploy agent-estimate
-    npx supabase functions deploy moodle-connect
-    npx supabase functions deploy moodle-sync
-
-**Local:**
-
-    npx supabase functions serve --env-file supabase/functions/.env
-
-Check what is live:
-
-    npx supabase functions list
-
-> Supabase verifies the caller's JWT by default on every function. **Keep that on.** The client calls functions via `supabase.functions.invoke(...)`, which attaches the session token automatically. Only add `--no-verify-jwt` if you have deliberately implemented your own auth.
-
-> **If the function folders are missing from your clone:** Lovable will not create new files under `supabase/functions/` in some project types. The functions are still deployable — the CLI deploys whatever is in the repo, regardless of who wrote it. Create the folder and `index.ts`, commit, and deploy.
-
----
-
-## 6. Set the Edge Function secrets
-
-Secrets are read server-side with `Deno.env.get(...)` and never reach the browser.
-
-    npx supabase secrets set MODEL_API_KEY=sk-... YOUTUBE_API_KEY=AIza...
-
-| Secret                | Required             | Purpose                                                              |
-| --------------------- | -------------------- | -------------------------------------------------------------------- |
-| `MODEL_API_KEY`       | For AI features      | Your model provider's API key                                        |
-| `MODEL_BASE_URL`      | No                   | Any OpenAI-compatible endpoint. Default `https://api.openai.com/v1`  |
-| `MODEL_NAME`          | No                   | Default `gpt-4o-mini`                                                |
-| `MODEL_NAME_FALLBACK` | Strongly recommended | Tried when the primary model is retired, overloaded, or rate-limited |
-| `YOUTUBE_API_KEY`     | For video estimates  | YouTube Data API v3 key                                              |
-
-`SUPABASE_URL`, `SUPABASE_ANON_KEY`, and `SUPABASE_SERVICE_ROLE_KEY` are injected automatically by Supabase — do not set them yourself.
-
-> **Token encryption.** `moodle-connect` encrypts the Moodle token before storing it. If your build requires a dedicated encryption secret, its exact name is documented in the header comment of `supabase/functions/moodle-connect/index.ts` — read that file and set it the same way.
-
-Confirm what is set (names only, values are never printed):
-
-    npx supabase secrets list
-
----
-
-## 7. Get an AI model key
-
-Any **OpenAI-compatible** provider works. Set the key, and point `MODEL_BASE_URL` / `MODEL_NAME` at your provider.
-
-| Provider         | `MODEL_BASE_URL`                                          | Example `MODEL_NAME`      | Free tier   |
-| ---------------- | --------------------------------------------------------- | ------------------------- | ----------- |
-| OpenAI           | `https://api.openai.com/v1` (default)                     | `gpt-4o-mini`             | No          |
-| Google AI Studio | `https://generativelanguage.googleapis.com/v1beta/openai` | `gemini-2.0-flash`        | Yes         |
-| Groq             | `https://api.groq.com/openai/v1`                          | `llama-3.3-70b-versatile` | Yes         |
-| OpenRouter       | `https://openrouter.ai/api/v1`                            | `openai/gpt-4o-mini`      | Some models |
-
-Example (Google AI Studio):
-
-    npx supabase secrets set \
-      MODEL_API_KEY=<your-key> \
-      MODEL_BASE_URL=https://generativelanguage.googleapis.com/v1beta/openai \
-      MODEL_NAME=gemini-2.0-flash
-
-**If you skip this entirely**, NextStep still runs: estimation falls back to the deterministic engine and decomposition falls back to the built-in planner. You lose narrative-quality step titles and low-confidence refinement, nothing else.
-
-> Set `MODEL_NAME_FALLBACK` to a second model. Providers retire model names and shed load without notice, and a retired name is the most common reason AI planning silently starts failing.
-
----
-
-## 8. Get a YouTube Data API key
-
-Needed only for accurate video duration estimates.
-
-1. Go to **console.cloud.google.com** and create (or select) a project.
-2. **APIs & Services → Library** → search **YouTube Data API v3** → **Enable**.
+1. Open [Google Cloud Console](https://console.cloud.google.com) and create/select a project.
+2. **APIs & Services → Library → YouTube Data API v3 → Enable**.
 3. **APIs & Services → Credentials → Create credentials → API key**.
-4. Copy the key.
-5. Recommended: click **Restrict key** → API restrictions → limit it to **YouTube Data API v3**.
+4. Open the key → **API restrictions → Restrict key → YouTube Data API v3 → Save**.
+5. Server functions have no fixed browser referrer and usually no fixed outbound IP: do not apply a browser referrer restriction. Use an IP restriction only if your server actually has a fixed egress IP.
+6. Save the key as `YOUTUBE_API_KEY` in the ignored function `.env`, then upload secrets again.
+
+The sync batches `videos.list` requests at up to 50 IDs. Missing keys or lookup failures leave duration null; the estimator uses 20 minutes at low confidence **if no usable stated duration is available**. YouTube oEmbed does not provide duration. Private, unavailable or paywalled material cannot reliably be measured.
+
+### Moodle administrator setup
+
+Paths vary by Moodle version; the following are Moodle 4/5 administration paths. An institutional administrator must approve this access. A correct token cannot override site policy.
+
+1. **Site administration → Advanced features → Enable web services**: enable and save.
+2. **Site administration → Server → Web services → Manage protocols** (some versions: **Plugins → Web services**) → enable **REST**.
+3. **Server → Web services → External services → Add**: create an enabled service named/shortnamed `nextstep`.
+4. Open that service → **Functions → Add functions** and add the seven read functions below.
+5. **Users → Permissions → Define roles → Add a new role**: create a service role with system context allowed, and allow `webservice/rest:use`.
+6. **Users → Permissions → Assign system roles**: assign that role to the **student** account. Keep the student's normal course enrolment/permissions too.
+7. If the service uses **Authorised users only**, add the student to that service's authorised users and check dates/IP restrictions.
+8. Enrol the student in the test courses; make the needed activities visible to that student.
+9. **Server → Web services → Manage tokens → Add**: choose the **student** and the `nextstep` service. Copy the token securely and check any expiry/IP restrictions.
+10. Enable completion tracking if testing Moodle activity completion, but do not assume NextStep's local step progress is the same as Moodle completion.
+
+| Read function | Purpose |
+| --- | --- |
+| `core_webservice_get_site_info` | Validate token and identify its user/site. |
+| `core_enrol_get_users_courses` | Read the user's enrolled courses. |
+| `core_course_get_contents` | Read sections and modules. |
+| `mod_assign_get_assignments` | Read assignment metadata/deadlines. |
+| `core_calendar_get_action_events_by_timesort` | Read calendar deadlines. |
+| `mod_quiz_get_quizzes_by_courses` | Read quiz deadlines and time limits. |
+| `core_completion_get_activities_completion_status` | Service permission for activity-completion experiments; the checked-in sync does **not** currently call this function. |
+
+### The two Moodle tokens
+
+| Token | Identity | Use |
+| --- | --- | --- |
+| **Student token** | Enrolled student authorised for `nextstep` | The token entered into NextStep; returns only coursework that student can access. |
+| **Admin token** | Administrator | Optional manual test-course creation/seeding with suitable separate services/tools; **not** the token used in the app. The seven-read-function service itself does not create courses. |
+
+An admin token can hide permission/enrolment bugs by seeing more data. A student-generated personal token may belong to a different service and lack these functions; it is not interchangeable with a student token bound to `nextstep`.
+
+### Test the student token before blaming the app
+
+On your own terminal, set `MOODLE_SITE_URL` to the site root and read the token without echoing it. Do not paste credentials into chat or screenshots.
+
+```bash
+export MOODLE_SITE_URL="https://<your-moodle-site>"
+read -rs -p 'Student Moodle token: ' MOODLE_STUDENT_TOKEN; printf '\n'
+```
+
+Then one curl command sends the token in the POST body, not a logged query-string URL:
+
+```bash
+curl --silent --show-error --request POST \
+  "$MOODLE_SITE_URL/webservice/rest/server.php" \
+  --data-urlencode "wstoken=$MOODLE_STUDENT_TOKEN" \
+  --data-urlencode 'wsfunction=core_webservice_get_site_info' \
+  --data-urlencode 'moodlewsrestformat=json'
+```
 
-Then:
+```bash
+unset MOODLE_STUDENT_TOKEN
+```
 
-    npx supabase secrets set YOUTUBE_API_KEY=<your-key>
+Expected: JSON containing `sitename` and `userid`. An `exception`/`errorcode` points to Moodle configuration, not NextStep. Avoid saving terminal output containing personal information.
 
-`videos.list` costs 1 quota unit per call and the default quota is 10,000 units/day — far more than a single user will ever need. Requests are batched up to 50 video IDs at a time.
+## First-run walkthrough
 
-> YouTube's **oEmbed** endpoint does not return duration, which is why the Data API is used and why this call happens server-side during sync. Without the key, video items get a 20-minute low-confidence estimate.
+1. Start `npm run dev`, open the URL it prints, and sign up with email/password.
+2. Confirm email if your hosted Supabase requires it, then sign in. A default `users_settings` row is created by the app.
+3. **Settings → Study capacity**: set weekly available hours and timezone; edits autosave.
+4. **Connect**: enter the public HTTPS Moodle site root and student token. The token is cleared after submission.
+5. Successful connection runs **Auto-detect**; review detected signals, estimates and confidence. Inline estimate edits are marked manual.
+6. **Confirm plan → Build my plan**: creates/summarises planned work and takes you to Map. AI-only planning can remain unplanned when no model is configured; see demo/fallback limits.
+7. **Map → Open**: inspect an assignment's step breakdown and criteria; work on it in Execute.
+8. **Execute**: use the timer, then Done, Blocked or Stopped. Saved real-assignment progress survives reloads; a changed Moodle due date resets the affected plan/progress.
+9. **Running behind**: inspect the recommendation and accept it when appropriate. Actual timed work supplies calibration samples.
 
----
+## Demo mode — no Moodle, model or YouTube credentials
 
-## 9. Set up a Moodle site
+1. Configure **your Supabase public URL/key**, apply migrations and sign up.
+2. **Settings → Connection and data → Use demo data** (the shell has the same toggle).
+3. Visit Map, Execute and Running behind. `MockProvider` supplies four courses, eleven assignments and prebuilt steps without calling Moodle or AI.
 
-Moodle web services require an **administrator**. You need a site you control. **There is no need to touch a university Moodle** — and you should not, since the institution gates this exactly the way it gated Canvas.
+**Exact current behaviour:** without a connection, the first screen is **Connect**, not an automatically enabled demo. Selecting Map still resolves MockProvider. Demo uses browser/session mock data, **not** a SQL seeding action. Its existing mix is one video, one reading, two quizzes, five papers and two posts; the new SQL seed has the requested two/two/two/four/one mix. The toggle does not create calibration records, and Settings reads calibration from Supabase, so a brand-new user's calibration is empty. Mock progress is not a substitute for database-backed persistence. These differences are intentionally documented rather than changing product behaviour during packaging.
 
-### 9.1 Pick a site
+### Database seed
 
-| Option                    | Cost          | Notes                                                                                                                                                                    |
-| ------------------------- | ------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| **Gnomio** (`gnomio.com`) | Free          | Full admin, **web services included on the free plan**, 500 users / 50 courses, publicly reachable. Shows ads. Signup is sometimes temporarily closed — try again later. |
-| **MoodleCloud trial**     | Free, 28 days | No ads, reliable, zero setup. Good for a demo or presentation.                                                                                                           |
-| **Local Docker**          | Free          | Full control, but **not reachable by deployed Edge Functions**. See 9.5.                                                                                                 |
+`supabase db reset` loads `supabase/seed.sql` when run locally. It contains four courses, eleven assignments, 31 specific steps, eleven detected items, four weekly slices, six calibration samples, two multipliers and three activity entries. Dates are relative to reset/seed time; exactly one assignment is due within twelve hours with 360 minutes of remaining allocated work. Initial fixture badges are one red, one amber and nine green. Every insert uses stable IDs and `ON CONFLICT DO NOTHING`; rerunning the seed does not duplicate or reset existing rows.
 
-Avoid the moodle.org demo sandboxes: they reset hourly and give you no admin rights, so you cannot enable web services or mint tokens.
+The public rows belong to the **fixture UUID** `00000000-0000-4000-8000-00000000d001`. There is **no built-in password, no automatically created Auth user and no Auth-schema modification**. Other signed-up users cannot read these rows through RLS. The seed is a database test fixture, not a completed UI demo integration.
 
-> **Gnomio housekeeping:** it deactivates sites with no valid access for a month and empty sites after a week. Log in regularly once your courses exist.
+If you want its settings/calibration/history attached to a disposable local test account, sign up using `demo@nextstep.example`, then run this once in **local Studio → SQL Editor**. This transfers only fixture-owned public rows; it does not create an LMS connection or change provider selection.
 
-### 9.2 Admin configuration (nine steps)
+```sql
+DO $$
+DECLARE
+  target uuid;
+  fixture constant uuid := '00000000-0000-4000-8000-00000000d001';
+BEGIN
+  SELECT id INTO target FROM auth.users WHERE email = 'demo@nextstep.example';
+  IF target IS NULL THEN RAISE EXCEPTION 'Create the local demo account first'; END IF;
+  UPDATE public.users_settings dst
+    SET weekly_available_hours = src.weekly_available_hours, timezone = src.timezone
+    FROM public.users_settings src WHERE src.user_id = fixture AND dst.user_id = target;
+  INSERT INTO public.users_settings (user_id, weekly_available_hours, timezone)
+    SELECT target, weekly_available_hours, timezone FROM public.users_settings WHERE user_id = fixture
+    ON CONFLICT (user_id) DO NOTHING;
+  DELETE FROM public.users_settings WHERE user_id = fixture;
+  UPDATE public.courses SET user_id = target WHERE user_id = fixture;
+  UPDATE public.assignments SET user_id = target WHERE user_id = fixture;
+  UPDATE public.detected_items SET user_id = target WHERE user_id = fixture;
+  UPDATE public.weekly_allocations SET user_id = target WHERE user_id = fixture;
+  UPDATE public.activity_log SET user_id = target WHERE user_id = fixture;
+  UPDATE public.calibration_multipliers SET user_id = target WHERE user_id = fixture;
+END $$;
+```
 
-`moodle-connect` and `moodle-sync` run in Supabase's cloud, so your Moodle needs a **public HTTPS URL**. Menu paths below are for Moodle 4.x and 5.x.
+Do not run this against a real student's database. The transfer is optional and is not part of an automatic first-run demo. Since MockProvider does not read these assignments, Map still displays its own mock semester; a fully database-backed no-LMS provider would be a separate product change.
 
-1. **Enable web services** — Site administration → Advanced features → tick _Enable web services_ → Save.
-2. **Enable the REST protocol** — Plugins → Web services → Manage protocols → click the eye next to **REST**.
-3. **Enable completion tracking** — Advanced features → tick _Enable completion tracking_ → Save. Needed for the progress function.
-4. **Create the external service** — Server → Web services → External services → Add. Name `nextstep`, short name `nextstep`, Enabled ✓.
-5. **Add the seven functions** — open `nextstep` → Functions tab → Add functions → search and add each one listed in 9.3.
-6. **Create a role that may use REST** — Users → Permissions → Define roles → Add a new role. Name `NextStep service`, short name `nextstepservice`, archetype **No archetype**, filter for `webservice/rest:use` → **Allow**.
-7. **Grant that role to your student user** — Users → Permissions → Assign system roles → `NextStep service` → add the student.
-8. **Generate the student token** — Server → Web services → Manage tokens → Add → user = your **student**, service = `nextstep`. **Copy the token — Moodle shows it once.**
-9. _(Optional, for seeding only)_ Generate an **admin token** the same way, with an administrator as the user.
+### Verified degradation contracts and limits
 
-> **Step 7 is the single most common setup failure.** Without the role, the token is created successfully and then every call fails with `Access control exception`. This looks like a broken app and is not.
+| Missing dependency | Current result |
+| --- | --- |
+| `MODEL_API_KEY` | Pure estimation still returns deterministic minutes. The low-confidence refinement path keeps them when AI fails. `planAssignment()` can return local steps marked `source: 'fallback'` with a note, **but `tailoredSteps()` rejects that fallback for ordinary assignments**, so Map AI rebuilding/AI-only planning leaves them unplanned and reports AI unavailable. Videos without extra instructions and empty announcements have local plans. |
+| `YOUTUBE_API_KEY` | Sync leaves durations null; a video with no stated duration gets 20 minutes, low confidence. A usable stated duration is honoured instead. |
+| Moodle connection | Connect prompt appears; MockProvider is available and no live sync is required. |
+| Moodle unreachable | Saved rows remain readable; provider reports cached data rather than swapping in fake Moodle rows. |
 
-### 9.3 The seven read functions
+Therefore “every assignment always gets built-in steps when AI is missing” is **not** an accurate claim for the current product. No generic templates were reintroduced during this work.
 
-| #   | Function                                           | What it supplies                                             |
-| --- | -------------------------------------------------- | ------------------------------------------------------------ |
-| 1   | `core_webservice_get_site_info`                    | Validates the connection; used by `moodle-connect`           |
-| 2   | `core_enrol_get_users_courses`                     | The student's enrolled courses                               |
-| 3   | `core_course_get_contents`                         | Sections and modules — where video/reading signals come from |
-| 4   | `mod_assign_get_assignments`                       | Assignments with `duedate`, `intro`, attachments             |
-| 5   | `core_calendar_get_action_events_by_timesort`      | Upcoming deadlines across courses                            |
-| 6   | `mod_quiz_get_quizzes_by_courses`                  | Quizzes including `timelimit` (seconds)                      |
-| 7   | `core_completion_get_activities_completion_status` | Per-activity progress                                        |
+## Entirely local backend (Docker required)
 
-### 9.4 Two tokens, and they are not interchangeable
+The config uses local project name `nextstep-local`, API port 54321, database 54322 and Studio 54323. Hosted project binding comes from `supabase link`, not a hardcoded project reference.
 
-| Token             | Belongs to           | Used for                                                      |
-| ----------------- | -------------------- | ------------------------------------------------------------- |
-| **Student token** | The enrolled student | What the app uses. This is the real use case.                 |
-| **Admin token**   | An administrator     | Creating courses/users/enrolments. **The app never sees it.** |
+```bash
+npx supabase start
+npx supabase db reset
+```
 
-Use the **student** token in NextStep. An admin token would appear to work while quietly returning admin-scoped data — which hides exactly the bugs worth catching.
+Use the API URL and public key shown by `supabase start` in front-end `.env`. Get them again with `npx supabase status`. Keep service-role keys out of browser configuration and screenshots.
 
-### 9.5 Local Moodle and the tunnel caveat
+Create the function template/file as described above. For mock evaluation, it may contain just a comment and no external credentials. For Moodle, set a valid `MOODLE_TOKEN_KEY`. In separate terminals:
 
-Deployed Edge Functions **cannot reach `http://localhost:8080`**. If you want a local Moodle with a deployed backend, expose it:
+```bash
+npx supabase functions serve --env-file supabase/functions/.env
+```
 
-    cloudflared tunnel --url http://localhost:8080
+```bash
+npm run dev
+```
 
-Then set Moodle's `wwwroot` to that public URL — Moodle redirects to its own stored URL, and a mismatch breaks every call. Free tunnel URLs change, so you will redo this often.
+This is the requested command sequence, but it was **not executed successfully in this sandbox**: Docker and Podman are unavailable. The migration/seed SQL is tested independently in PostgreSQL via PGlite; that does not verify Auth, gateway behaviour, container networking or the full CLI reset.
 
-If you are running everything locally (§ _Running the backend entirely on your machine_), skip the tunnel: `localhost` is reachable from locally served functions.
+**Local Moodle correction:** the current connection validator rejects HTTP, localhost, private IPs and `.local` hosts even when functions are served locally. Also, inside a function container, `localhost` means that container, not the host machine. Consequently a Moodle at `http://localhost:8080` does **not** currently connect. Use an explicitly public HTTPS endpoint/tunnel with Moodle's configured site root matching it, or treat private-local Moodle support as a separate security-reviewed change. Deployed functions also require a reachable public HTTPS Moodle URL. This guide does not weaken the existing SSRF guard to claim otherwise.
 
-### 9.6 Test content worth seeding
+If Moodle occupies port 8080, run the front end at another port and add its exact URL to Auth redirect settings:
 
-Create a **student** account, a **teacher** account, and two to four courses with a deliberate mix:
+```bash
+npm run dev -- --port 5173
+```
 
-- a **YouTube URL** activity → exercises the duration lookup (use a real, public video)
-- a **quiz with a time limit** → the high-confidence path (`timelimit` is authoritative)
-- a **file with real text** → drives the reading estimate (empty files give a zero word count)
-- an **assignment with description only** → the open-ended path, handled by capacity allocation
-- **one item due within 12 hours with large effort** → this is what makes the "Running no room to be behind" state actually visible
+```bash
+npx supabase stop
+```
 
-Without that last item, the buffer engine has nothing red to show and the demo looks broken when it is not.
+## Complete environment reference
 
-### 9.7 Verify the token before blaming the app
+### Browser (`.env`, public)
 
-Replace the placeholders and run:
+| Name | Required / effect if missing |
+| --- | --- |
+| `VITE_SUPABASE_URL` | Required. Client cannot initialise without your API URL; setup error names the missing configuration. |
+| `VITE_SUPABASE_PUBLISHABLE_KEY` | Required. Public publishable or legacy anon key. Client cannot initialise without it. |
 
-    curl -s "https://<your-moodle-site>/webservice/rest/server.php?wstoken=<STUDENT_TOKEN>&wsfunction=core_webservice_get_site_info&moodlewsrestformat=json"
+`VITE_SUPABASE_PROJECT_ID` may be supplied by the editor, but this app does not read it. `VITE_SUPABASE_ANON_KEY` is not an alias.
 
-A JSON object with `sitename` and `userid` means the wiring is correct. An `exception` field means the Moodle side is not configured — go back to 9.2.
+### Edge Function secrets (never `VITE_`)
 
----
+| Name | Reader | Effect if absent |
+| --- | --- | --- |
+| `MODEL_API_KEY` | `agent-estimate` | HTTP 200 typed `NOT_CONFIGURED`; no model request. Deterministic estimates survive; AI-only plans may remain unplanned. |
+| `MODEL_BASE_URL` | `agent-estimate` | Defaults to `https://api.openai.com/v1`; must be explicitly set for Groq/Gemini/OpenRouter. Blank is not absent. |
+| `MODEL_NAME` | `agent-estimate` | Defaults to `gpt-4o-mini`; configure an available model for your provider. Blank is not absent. |
+| `MODEL_NAME_FALLBACK` | `agent-estimate` | No second-model retry. |
+| `YOUTUBE_API_KEY` | `moodle-sync` | Video duration lookup skipped; deterministic fallback/stated length used. |
+| `MOODLE_TOKEN_KEY` | Both Moodle functions | Typed `NOT_CONFIGURED`. Invalid key formatting can still throw in connect; sync reports unreadable token. |
+| `SUPABASE_URL` | All three functions; provided by Supabase | Auth client cannot initialise correctly. |
+| `SUPABASE_ANON_KEY` | All three functions; provided by Supabase | User authentication cannot be checked correctly. |
 
-## 10. Run the app
+`TOKEN_ENCRYPTION_KEY`, `MODEL_API_KEY` and `MOODLE_TOKEN_KEY` are not interchangeable. The checked-in Moodle functions do not implement a `TOKEN_ENCRYPTION_KEY` alias.
 
-    npm run dev
+### Optional tooling / unused generated server helpers
 
-Open the URL it prints (typically `http://localhost:8080` or `http://localhost:5173`).
+The current screen flows use the browser repository and the existing functions. Generated server helpers also read the following, but they are not needed to view the app in mock mode; do not configure them “just in case”.
 
-Production build, to confirm it compiles cleanly:
+| Name | Reader / effect |
+| --- | --- |
+| `SUPABASE_URL`, `SUPABASE_PUBLISHABLE_KEY` | Generated authenticated server middleware; required only if that helper is called. |
+| `SUPABASE_SERVICE_ROLE_KEY` | Generated privileged server client; only for verified privileged operations. Not used by the three existing functions. Never expose to a browser. |
+| `LOVABLE_CRON_SECRET`, `LOVABLE_CRON_SECRET_PREVIOUS` | Generated cron-auth helper; no documented NextStep cron setup is required. |
+| `SECURITY_TEST_ACCESS_TOKEN` | Optional authorised second-account security probe; a user session, not an admin key. Do not log it. |
+| `SECURITY_TEST_OTHER_USER_ID`, `SECURITY_TEST_OTHER_ASSIGNMENT_ID` | IDs of fixtures belonging to the other account for the RLS probe. |
+| `SECURITY_BUILD_COMMIT` | Optional security-report commit label; otherwise reads Git HEAD. |
 
-    npm run build
-    npm run preview
-
----
-
-## 11. First-run walkthrough
-
-1. **Sign up** with an email and password. Every table's RLS is scoped to the signed-in user, so nothing is readable before this.
-   - On **hosted** Supabase, sign-up may ask you to confirm your email. Either click the link, or disable confirmation under **Authentication → Providers → Email → Confirm email**.
-   - On **local** Supabase, confirmation is off by default and you are signed in immediately.
-2. **Settings** — set your **weekly available hours** and **timezone**. This is the capacity budget the allocation engine spends; without it, open-ended work has no budget to draw from.
-3. **Connect** — paste your Moodle site URL (with `https://`, no trailing slash) and the **student** token. Click test/connect. You should see the site name and your Moodle user name come back.
-4. **Auto-detect** — the sync pulls courses, assignments, module items, quiz time limits, and video durations. Each detected item carries a confidence level.
-5. **Confirm plan** — steps are generated. Review, adjust anything, confirm.
-6. **Map** — check the buffer badge per assignment. Green means comfortable, amber means under a day of slack, red means _no room to be behind_.
-7. **Execute** — work the single card. Report **Done**, **Blocked**, or **Stopped at timebox**. Blocked triggers the re-planner; actual times feed calibration.
-8. **Running behind** — after a few cycles, this tab shows real re-plans and recomputed deadlines.
-
----
-
-## Using it without Moodle (demo mode)
-
-You can evaluate the entire product with **zero external accounts**.
-
-1. Sign up (Supabase only — no Moodle, no AI key, no YouTube key needed).
-2. In **Settings**, enable **demo data**.
-3. The app seeds realistic courses, assignments, steps, and progress, and every view works: Map, Execute, Running behind, buffer states, timers, calibration.
-
-This is the fastest way for a reviewer to see NextStep working, and it is deliberately dependency-free. Live Moodle ingestion is the only thing that ever requires a real credential, because it is by nature scoped to a real student's account.
-
-**Test the fallbacks explicitly.** With `MODEL_API_KEY` unset, estimation still runs deterministically and decomposition still produces steps. If the app breaks when the key is missing, something is wrong.
-
----
-
-## Running the backend entirely on your machine
-
-The optional fully-offline path. Requires Docker Desktop.
-
-    npx supabase start
-    npx supabase db reset
-    npx supabase functions serve --env-file supabase/functions/.env
-
-Create `supabase/functions/.env`:
-
-    MODEL_API_KEY=sk-...
-    MODEL_BASE_URL=https://api.openai.com/v1
-    MODEL_NAME=gpt-4o-mini
-    YOUTUBE_API_KEY=AIza...
-
-Then point `.env` at the local API URL and anon key printed by `supabase start`. With this setup a **local Moodle at `http://localhost:8080` works** — no tunnel needed, because the functions run on your machine.
-
-Stop everything:
-
-    npx supabase stop
-
----
-
-## Environment variable reference
-
-### Front end (`.env`) — public, shipped to the browser
-
-| Variable                 | Required | Where used                                                                                                      |
-| ------------------------ | -------- | --------------------------------------------------------------------------------------------------------------- |
-| `VITE_SUPABASE_URL`      | Yes      | `src/integrations/supabase/client.ts`                                                                           |
-| `VITE_SUPABASE_ANON_KEY` | Yes      | Same. Newer Lovable projects may name it `VITE_SUPABASE_PUBLISHABLE_KEY` — use whatever your `client.ts` reads. |
-
-### Edge Functions (Supabase secrets) — server only, never `VITE_`
-
-| Variable                            | Required            | Read by          |
-| ----------------------------------- | ------------------- | ---------------- |
-| `MODEL_API_KEY`                     | For AI features     | `agent-estimate` |
-| `MODEL_BASE_URL`                    | No                  | `agent-estimate` |
-| `MODEL_NAME`                        | No                  | `agent-estimate` |
-| `MODEL_NAME_FALLBACK`               | Recommended         | `agent-estimate` |
-| `YOUTUBE_API_KEY`                   | For video estimates | `moodle-sync`    |
-| `SUPABASE_URL`, `SUPABASE_ANON_KEY` | Auto-injected       | All functions    |
-
----
+The security runner reads `SUPABASE_URL`/`SUPABASE_PUBLISHABLE_KEY` or falls back to the two documented `VITE_` values from `.env`; it no longer defaults to the original project. Running it overwrites `public/security-results.json` and contacts Supabase Auth with deliberate invalid requests; run only against your authorised test project. The historical report/evidence is not proof about your installation.
 
 ## Project structure
 
-    nextstep/
-    ├── src/
-    │   ├── components/              UI — Map, Execute, Running behind, Connect, Settings
-    │   ├── lib/
-    │   │   ├── db/                  Typed repository layer over Supabase
-    │   │   ├── agent/               Deterministic estimation, decomposition,
-    │   │   │                        AI-step sanitising, agent client
-    │   │   └── lms/                 LmsProvider interface + implementations
-    │   │       ├── moodleProvider.ts
-    │   │       ├── moodle-connect.ts
-    │   │       ├── moodle-sync.ts
-    │   │       └── types.ts
-    │   ├── integrations/supabase/   Generated Supabase client
-    │   └── types/                   Shared TypeScript types
-    ├── supabase/
-    │   ├── functions/
-    │   │   ├── agent-estimate/      The only model path
-    │   │   ├── moodle-connect/      Validates and encrypts the token
-    │   │   └── moodle-sync/         Pulls and measures course material
-    │   ├── migrations/              Schema, RLS policies
-    │   └── seed.sql                 Demo data
-    ├── .env.example
-    └── README.md
+```text
+src/
+  components/             Shell, five surfaces and shared UI controls
+  routes/                 TanStack file routes; authenticated screens and sign-in
+  integrations/supabase/  Public client, generated schema types and server helpers
+  lib/db/                 Repository for application table reads/writes
+  lib/lms/                Provider interface, mock/live providers, connect/sync clients
+  lib/agent/              Estimates, allocation, decomposition, buffers, re-planning, calibration
+  lib/session/            Session timer/Execute state
+  types/                  Domain types
+  security/               Fixture/authorised security cases and report configuration
+  test/                   Test setup and cross-cutting tests, including isolated migration replay
+supabase/
+  config.toml             Local service defaults and function gateway configuration
+  migrations/             Ordered schema changes, grants, RLS and completion functions
+  seed.sql                Idempotent public-table local test fixture; no Auth account
+  functions/
+    agent-estimate/       OpenAI-compatible model planning/refinement
+    moodle-connect/       Token validation, encryption and connection storage
+    moodle-sync/          Read-only Moodle ingestion and YouTube duration lookup
+scripts/                  Security runner, PDF generator and read-only packaging audit
+public/                   Static assets, historical security JSON/PDF/evidence
+.lovable/                 Editor metadata, not needed as an end-user feature
+README.md                 Setup and limitations
+.env.example              Empty browser configuration template
+.nvmrc                    Tested Node version
+```
 
-**One architectural rule governs everything:** the LMS is behind a provider interface.
+`src/integrations/supabase/types.ts` is generated and must not be manually edited. The domain types/repositories also cover app-specific fields. The missing function-secret template is intentionally not shown as an existing file.
 
-    interface LmsProvider {
-      validateConnection(siteUrl, token): Promise<SiteInfo>
-      getCourses(): Promise<Course[]>
-      getAssignments(courseId): Promise<Assignment[]>
-      getCourseContents(courseId): Promise<CourseModule[]>
-    }
+## Reviewer verification checklist
 
-`MoodleProvider` implements it today. `MockProvider` backs demo mode. A `CanvasProvider` could be added without touching a single view. **Components must never call Moodle, Canvas, or any external API directly** — all external calls happen in Edge Functions, which is what keeps the token server-side and avoids browser CORS entirely.
+```bash
+npm run test
+npm run build
+npm run preview
+```
 
----
+| Check | Expected result / qualification |
+| --- | --- |
+| `npm install` with pinned Node | Dependencies install; npm scripts exist. Bun users can use the committed `bun.lock`. No npm lockfile is provided, so npm dependency resolution is not fully frozen. |
+| `npx supabase start` then `db reset` | With Docker: migrations apply and seed loads; needs verification on a Docker machine. Destructive only to the selected local database. |
+| `npm run test` | Unit/fixture tests, including fresh migration replay and seed duplication checks, pass without AI or live Moodle. |
+| Sign up/sign in | Requires correctly configured Supabase URL/key, Auth redirects and confirmation if enabled. |
+| No LMS connection | Connect prompt, not a crash. |
+| Settings → Use demo data | Mock courses and prebuilt actions load without Moodle/model/YouTube keys; fresh calibration remains empty. |
+| Map → Open; Execute | Assignment criteria/action/timer visible. Mock interaction is not a database-persistence test. |
+| Running behind | Mock urgent assignment exercises the risk presentation. |
+| Database fixture queries | Four courses, eleven assignments, 31 steps; red/amber/green counts 1/1/9 for fixture owner. |
+| Missing model key | Deterministic minutes survive; ordinary AI-only rebuild reports unavailable rather than silently claiming an AI plan. |
+| Missing YouTube key | Unknown-duration video gets 20 minutes/low confidence; stated duration can override that fallback. |
+| Valid student Moodle token | Site identity then detected work, subject to Moodle permissions and external availability. Not tested by fixture tests. |
+| Real assignment completion/reload | Status/progress are stored by completion RPCs; confirm on your own signed-in project with real saved assignment IDs. |
+| `node scripts/audit-reproducibility.mjs` | Lists matching tracked project URLs/credential patterns without printing values. Remaining tracked `.env` is a documented blocker. |
 
-## Verifying your install
-
-A reviewer can treat this as an acceptance checklist.
-
-| #   | Check                                     | Expected                                               |
-| --- | ----------------------------------------- | ------------------------------------------------------ |
-| 1   | `npm install` on a clean clone            | Completes with no missing peer dependency errors       |
-| 2   | `npm run build`                           | Succeeds; no TypeScript errors                         |
-| 3   | `.env` filled, `npm run dev`              | App loads and shows the sign-in screen                 |
-| 4   | Sign up                                   | Account created; you land in the app                   |
-| 5   | `npx supabase functions list`             | All three functions listed as active                   |
-| 6   | `npx supabase secrets list`               | `MODEL_API_KEY` and `YOUTUBE_API_KEY` present          |
-| 7   | Settings → enable demo data               | Courses, assignments, steps and buffers populate       |
-| 8   | Execute tab                               | One action card with a running timer and three buttons |
-| 9   | Map tab                                   | Buffer badges in green / amber / red; at least one red |
-| 10  | Unset `MODEL_API_KEY`, re-run an estimate | Still produces steps via the deterministic fallback    |
-| 11  | Moodle connect with a valid student token | Site name and user returned, then sync populates data  |
-| 12  | Moodle connect with a bad token           | A clear error message, not a crash                     |
-
-Checks 1–10 need no external accounts beyond Supabase. That is the reproducible core.
-
----
+`npm run build` is a build, not a TypeScript checking command or a complete security assessment. `npm run preview` serves the generated preview using the existing Vite/TanStack setup; deployment target is configured by the existing Lovable Vite integration.
 
 ## Troubleshooting
 
-| Symptom                                                                 | Cause and fix                                                                                   |
-| ----------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------- |
-| App loads but every read returns nothing                                | RLS is doing its job. You are signed out, or the rows belong to another `user_id`. Sign in.     |
-| `VITE_` variable is `undefined`                                         | Restart the dev server after editing `.env`. Vite reads `.env` at boot.                         |
-| Functions return 401                                                    | JWT verification is on and the caller is not signed in. Sign in first.                          |
-| `NOT_CONFIGURED` from `agent-estimate`                                  | `MODEL_API_KEY` is not set on the project. `npx supabase secrets set ...`.                      |
-| `The model "<name>" is not available`                                   | `MODEL_NAME` is wrong or retired. Set a live model, and set `MODEL_NAME_FALLBACK` too.          |
-| AI silently falls back to the built-in planner                          | Expected. Every failure path degrades to the deterministic plan rather than breaking the view.  |
-| `Access control exception` / `nopermissions` from Moodle                | The token's user lacks `webservice/rest:use`. Redo §9.2 steps 6–7.                              |
-| `Invalid token - token not found`                                       | Token regenerated, or copied with a trailing space.                                             |
-| `Web services must be enabled`                                          | §9.2 step 1.                                                                                    |
-| `Unsupported protocol`                                                  | §9.2 step 2 — REST is not enabled.                                                              |
-| A Moodle function returns `[]`                                          | User is not enrolled, the course has no content of that type, or completion tracking is off.    |
-| Video shows a 20-minute estimate                                        | `YOUTUBE_API_KEY` missing, or the URL is not a real public YouTube video.                       |
-| `core_enrol_get_users_courses` returns `[]` despite a correct enrolment | Known issue on some managed Moodle hosts. See _Known limitations_.                              |
-| Edge Functions cannot reach Moodle                                      | Your Moodle is not publicly reachable over HTTPS, or `wwwroot` does not match the URL you used. |
-| Redirected to a different hostname during sync                          | `wwwroot` mismatch. Fix Moodle's site URL.                                                      |
-
----
+| Symptom | Check / remedy |
+| --- | --- |
+| RLS returns no rows | Sign in; verify row ownership and explicit table grants. Seed fixture rows are owned by the fixture UUID, not your new account. Child rows require an owned assignment. Do not disable RLS. |
+| Functions return 401 | Verify the session is signed in, not expired, and belongs to the same Supabase URL/key as the function deployment. Distinguish gateway rejection from handler `UNAUTHENTICATED`; check JWT signing/verification compatibility. |
+| `NOT_CONFIGURED` from `agent-estimate` | Set `MODEL_API_KEY` for that function project. Deterministic estimation is still available; AI-only step rebuilding is not. |
+| Model 404/unavailable | Set an available `MODEL_NAME` and correct compatible API root. Optional fallback model must exist on the same provider. |
+| Model URL/model unexpectedly empty | Remove blank optional settings from the real function `.env`; absent variables trigger defaults, empty strings do not. |
+| Moodle `Access control exception` | Service enabled? Student authorised? `webservice/rest:use` at system context? Required functions added? Token IP/expiry restrictions correct? |
+| Moodle function returns empty arrays | Check student's enrolment, visibility, function permissions and actual content. A successful site-info call alone does not prove course access. |
+| `core_enrol_get_users_courses` empty despite enrolment | Some managed sites have this limitation. This sync does **not** implement a calendar-derived course fallback; ask the site administrator to investigate service behaviour. |
+| Unreachable Moodle | Public HTTPS root must match Moodle `wwwroot`, be reachable from the function runtime, and not redirect. HTTP/local/private hosts are deliberately rejected. |
+| Missing video durations | Check YouTube API enabled/key restriction/quota and a public video ID. URL activities that expose only a Moodle wrapper may not reveal the underlying YouTube URL. |
+| Invalid encryption key / AES key-length error | Use base64 of 32 bytes, not hex. Keep connect and sync on the same key. Reconnect after rotation. Connect can currently expose an unhandled failure for a malformed key. |
+| “No steps planned yet” or AI unavailable | Ordinary tailored plans need a reachable model. Rebuild preserves existing finished steps; missing AI is not a guarantee of saved local decomposition. |
+| Fresh demo calibration empty | Expected: toggle activates mocks but does not insert samples/multipliers. SQL fixtures require explicit ownership and are not automatic demo integration. |
+| Missing public environment variables | Copy `.env.example`, fill the exact names and restart the local app. No original-project fallback exists. |
 
 ## Known limitations
 
-Stated plainly, because they are real.
+- Single-user capstone scope; no production multi-tenant onboarding, Canvas, LTI, calendar sync or native mobile app.
+- Moodle web services are an **administrator decision**. The app cannot bypass an institution's policy.
+- Managed Moodle hosts may return empty course arrays despite correct enrolment. No alternative course-discovery path is implemented in this checkout.
+- Paywalled, private, scanned or inaccessible content cannot reliably supply word counts/durations. Partial signals must not be mistaken for measured effort.
+- Moodle rubrics are not generally supplied by these endpoints. Plans can only use instructions actually returned; the current sync item response omits rich description/rubric/word-count fields, so the app may not receive all instructor requirements.
+- The checked-in sync uses six of the seven configured read functions; it does not fetch Moodle activity completion. Local step progress is its own system.
+- No-Moodle mock evaluation works for the main surfaces, but the all-features, persisted, automatically enabled demo requested in the packaging brief is not implemented.
+- Ordinary tailored planning requires AI even though the client has a lower-level deterministic fallback. Reintroducing generic templates would conflict with the existing assignment-specific planning behaviour.
+- Local HTTP/private Moodle is blocked by the existing security validator. Container networking alone cannot fix that.
+- Typed errors cover expected failures, not every exception in the existing function code. Complete robustness would need a separate minimal repair, not an undocumented packaging change.
+- Leaked-password protection is disabled on the current free-tier project. Three existing SECURITY DEFINER completion functions are also flagged by the advisor; they are authenticated and check ownership. This review did not change those settings/functions.
+- Historical security evidence remains associated with the original authorised test run. `/test-report` is restricted to the existing configured owner email; a new reviewer account is not automatically its owner.
 
-- **Moodle web services are an administrator decision.** Fine on a site you host. On an institutional Moodle you may be blocked at the same policy layer that blocked Canvas for this project. The blocker is institutional, not technical.
-- **`core_enrol_get_users_courses` can return an empty array on managed Moodle hosts** even when the enrolment is provably correct — verified on MoodleCloud with Moodle 5.3. The workaround is to derive the enrolled course set from `core_calendar_get_action_events_by_timesort`, whose events carry a `courseid`. This is exactly the class of variation the provider adapter exists to absorb.
-- **Tokens are bearer credentials.** Anyone holding a Moodle token can read that student's courses. NextStep stores it encrypted, server-side only, and never displays or logs it after submission.
-- **Paywalled content and unwatchable video cannot be measured.** Estimates derived from partial signals are flagged with a confidence level, and low confidence is shown to the user rather than hidden.
-- **Rubrics are not available.** `mod_assign_get_assignments` returns the description and attachments but not the rubric, so AI plans can only ground themselves in what the instructor wrote.
-- **Credential-free demo mode does not exercise live ingestion.** By definition, connecting to a real LMS requires a real token.
-- **Single-user by design.** No multi-tenant onboarding, no LTI 1.3, no calendar sync, no mobile client, no Canvas provider. All future work.
+## Estimation, capacity, buffers and calibration
 
----
+These descriptions follow the checked-in engines; packaging did not change them.
 
-## How the estimation and buffer logic works
+| Work | Estimate |
+| --- | --- |
+| Video | Seconds ÷ 60, nearest minute, minimum one minute; unknown duration defaults to 20 minutes at low confidence unless a stated length is usable. |
+| Reading | Words ÷ 200, rounded up. |
+| Quiz | Its own positive time limit (seconds ÷ 60, rounded up), high confidence; otherwise question count ×1.5, rounded up. |
+| Writing | Target words ÷250 ×1.2 for editing, rounded up. |
+| Unknown work | 30-minute low-confidence fallback. |
+| Empty announcement | Five minutes and one local “View announcement” action. |
 
-Worth understanding before you debug it.
+**Capacity allocation:** weekly hours ×60 is the weekly minute budget. Fixed/signal work due in the selected Monday–Sunday week consumes that budget first; the remainder is shared among open-ended work by urgency. The engine applies floor/cap constraints and normalises to fit available capacity; if fixed work is at least the budget, it reports over capacity. Weekly slices are per assignment and week, not a promise of total project duration.
 
-**Estimation is deterministic first, AI second.**
+**Buffers:** the code correctly converts hours to minutes before calculating daily capacity:
 
-| Item type | Rule                                                                                                          |
-| --------- | ------------------------------------------------------------------------------------------------------------- |
-| Video     | duration in seconds ÷ 60, resolved server-side via the YouTube Data API. 20 min at low confidence if unknown. |
-| Reading   | word count ÷ 200 wpm                                                                                          |
-| Quiz      | the quiz's own `timelimit` when present; otherwise questions × 1.5 min                                        |
-| Writing   | target words ÷ 250 wpm + 20% editing overhead                                                                 |
-| Fallback  | 30 min                                                                                                        |
+```text
+daily free minutes = weekly_available_hours × 60 ÷ 7
+slack in days = days until deadline − remaining estimated minutes ÷ daily free minutes
+```
 
-The result is `{ minutes, confidence, signals[] }`, where confidence depends on how many signals were actually available. The LLM is consulted only to refine weak estimates and to write better step titles — and every AI response is strictly validated, with anything malformed rejected in favour of the deterministic planner.
+Open-ended work uses its weekly slice; fixed/manual estimates account for saved progress. Green: slack >1 day. Amber: 0<slack≤1 day. Red: slack≤0, “No room to be behind”. A missing deadline yields infinite slack.
 
-**Open-ended work is allocated, not guessed.** A paper has no measurable signal, so guessing produces the exact anxiety the product exists to remove. Instead:
+**Calibration:** after three usable timed samples of a type, a multiplier moves toward the median actual/estimated ratio with a 50% blend, clamped to 0.6–1.8. At five samples the highest/lowest ratios are trimmed. Untimed or sub-minute samples are excluded; actual time greater than three times the estimate or 180 minutes is treated as a possible forgotten timer, subject to the student's confirmation. These thresholds are unchanged.
 
-    C = weekly_available_hours × 60          // capacity this week
-    H = sum of signal estimates due this week // hard work
-    R = max(0, C − H)                         // remainder
-    allocate R across open-ended items by urgency,
-    clamped to [30 min floor, time before deadline]
+## Verification status and clean-clone audit
 
-If `H ≥ C`, the app raises an **over-capacity** warning — the week is not physically possible — and moves the student into the running-behind flow. Allocation is weekly and per item, so a three-week project receives only this week's slice.
+| Acceptance item | Status |
+| --- | --- |
+| Empty-database `supabase db reset` succeeds | **Not certified:** no Docker/Podman in this sandbox. Ordered migrations and seed can be replayed in isolated PostgreSQL tests, but a full Supabase reset still needs a Docker verification. |
+| Seed contains red/amber/green on first load | **Database fixture present:** 1/1/9 states, one urgent high-effort item. **Not automatic UI integration** with MockProvider or a newly signed-up user's UUID. |
+| Demo works with no Moodle/model/YouTube | **Partial:** existing mock main surfaces do; fully populated fresh calibration, persisted demo and automatic demo default do not. |
+| `npm run build` succeeds | Checked by the editor's automatic build, not manually run by this agent; see the audit notes for the actual observed result. |
+| Both environment templates exist; no real value committed | **Not met:** root template exists; functions template creation and `.env` untracking/ignore changes are blocked. Source hardcoding removed, but managed tracked `.env` and historical commits retain public original-project configuration. |
+| Three Edge Functions present/deployable | **Present:** all three sources plus connect validator. Deployed parity and a fresh deployment are unverified; functions were not redeployed. |
+| Only Supabase needed for a populated app | **Main mock workflow available**, not a complete database-backed all-features demo. |
+| No design/rule/behaviour changes | **Preserved:** no views, styles, buffer/estimate/calibration logic or AI-only planning rules changed. Only configuration, schema packaging, seed, tests and documentation were changed. |
 
-**The buffer engine.** For each assignment:
+Remaining clean-clone blockers are explicit: create the function-secret template outside this editor; stop tracking local `.env` in the independent clone; run Docker reset/serve; verify gateway signing-key compatibility; and treat persisted demo integration, local-private Moodle and unhandled-function-error repairs as separately scoped work. Every named npm script above exists. Optional external credentials have acquisition instructions; none are silently assumed for mock evaluation.
 
-    slack = (days until deadline) − (remaining estimated minutes ÷ daily free minutes)
-    daily free minutes = weekly_available_hours ÷ 7
-
-| slack             | State                            |
-| ----------------- | -------------------------------- |
-| > 1 day           | Green                            |
-| 0 < slack ≤ 1 day | Amber                            |
-| ≤ 0               | Red — **"No room to be behind"** |
-
-**Calibration** compares estimated against actual per item type. Untimed completions, sub-minute completions, and running-timer outliers (over 3× the estimate or over 180 minutes) are rejected rather than trusted. After three usable samples, a per-type multiplier moves toward the **median** observed ratio, blended and clamped to 0.6–1.8.
-
-**Accessibility is a hard requirement, not a nicety:** status is conveyed by label _and_ icon, never colour alone; WCAG AA contrast; full keyboard navigation; visible focus rings; `prefers-reduced-motion` respected; no decorative animation on the Execute view.
-
----
-
-## Project context
-
-Built as an IST 440W capstone. The designer is a member of the target segment, which is why the scope is deliberately narrow: one user, one LMS, one job — hand the student the next action and protect them from their own time estimates.
+For the dated file-by-file findings, test output and exact tool refusals, see [docs/reproducibility-audit.md](docs/reproducibility-audit.md).

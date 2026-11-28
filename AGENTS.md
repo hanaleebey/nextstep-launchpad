@@ -32,3 +32,8 @@
 
 ## Security evidence
 - Security cases live in `src/security/` and run through `scripts/security-run.mjs`; use demo data, fixtures, and anonymous probes only, never AI or a live LMS. The JSON feeds the owner-only `/test-report` route and the on-demand PDF generator, which skips missing evidence images.
+
+## Reproducible packaging
+- Read browser Supabase configuration only from the documented public Vite variables; this lets a clone use its own project without changing source.
+- Keep local seed data in SQL with stable fixture IDs and conflict guards, never seed on page load; repeat runs must preserve student progress.
+- Replay ordered migrations and seeds in isolated PGlite tests; this verifies PostgreSQL schema contracts without touching a managed database and is not a substitute for a Docker-backed Supabase reset.
