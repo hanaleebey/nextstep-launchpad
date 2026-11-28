@@ -37,3 +37,4 @@
 - Read browser Supabase configuration only from the documented public Vite variables; this lets a clone use its own project without changing source.
 - Keep local seed data in SQL with stable fixture IDs and conflict guards, never seed on page load; repeat runs must preserve student progress.
 - Replay ordered migrations and seeds in isolated PGlite tests; this verifies PostgreSQL schema contracts without touching a managed database and is not a substitute for a Docker-backed Supabase reset.
+- Run Docker acceptance checks from a sanitized committed snapshot in a temporary directory with a unique local Supabase project; this prevents resetting a developer's database or inheriting hosted credentials.

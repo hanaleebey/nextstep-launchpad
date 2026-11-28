@@ -377,7 +377,47 @@ npx supabase functions serve --env-file supabase/functions/.env
 npm run dev
 ```
 
-This is the requested command sequence, but it was **not executed successfully in this sandbox**: Docker and Podman are unavailable. The migration/seed SQL is tested independently in PostgreSQL via PGlite; that does not verify Auth, gateway behaviour, container networking or the full CLI reset.
+This command sequence was **not executed successfully in this sandbox**: Docker and Podman are unavailable. Use the automated Docker check below on a Docker-enabled machine or in GitHub Actions. PGlite remains a separate lightweight check, not evidence of container startup.
+
+### Automated Docker clean-clone check
+
+```bash
+# Requires running Docker, Git, tar, Node from .nvmrc and Bun 1.4.4.
+# Run after committing your changes: only HEAD is checked.
+npm run check:local
+```
+
+The same command runs on GitHub's Docker-enabled Ubuntu runner through
+`.github/workflows/local-clean-clone.yml` on pushes, pull requests, and manual
+**Actions → Docker clean-clone setup → Run workflow** requests. No repository
+secrets, Supabase login, hosted project link, model key or Moodle token are needed.
+
+The check exports committed source into a temporary directory without actual
+environment files, dependencies, generated output or stored Supabase links. It
+installs from `bun.lock`, pins Supabase CLI **2.67.1**, assigns a unique disposable
+project name, starts the local services and runs `supabase db reset --local`.
+It verifies the complete migration history against real PostgreSQL; all ten
+tables' RLS and authenticated CRUD grants; exact seed counts, item mix, buffers,
+urgent deadline, calibration samples and a repeat seed preserving changed progress.
+It then creates two temporary accounts through local Auth, checks isolation
+through the Data API, completes a saved step and reads back 100% assignment
+progress, verifies anonymous function rejection, runs the regression suite and
+starts the front end to check the sign-in page response.
+
+Local public configuration is generated only inside that temporary directory.
+The temporary front end and Supabase containers/volumes are stopped and removed
+on normal success or failure. Existing local stacks are not reset: occupied
+ports cause startup to fail. Leave ports 54320–54323, the CLI's other default
+service ports, and 5173 free. Initial runs download large container images.
+An interrupted process or forced runner termination may require manual Docker
+cleanup of containers named for `nextstep-check-*`.
+
+**Evidence boundary:** adding this check is not a recorded Docker pass. This
+sandbox still has no Docker; the first successful Actions run supplies that
+evidence. The check verifies local service/API persistence and front-end startup,
+not a browser-driven signed-in five-tab walkthrough, external Moodle/AI calls,
+hosted deployment parity or automatic database-backed demo integration. It does
+not repair or certify the tracked environment-file restrictions documented above.
 
 **Local Moodle correction:** the current connection validator rejects HTTP, localhost, private IPs and `.local` hosts even when functions are served locally. Also, inside a function container, `localhost` means that container, not the host machine. Consequently a Moodle at `http://localhost:8080` does **not** currently connect. Use an explicitly public HTTPS endpoint/tunnel with Moodle's configured site root matching it, or treat private-local Moodle support as a separate security-reviewed change. Deployed functions also require a reachable public HTTPS Moodle URL. This guide does not weaken the existing SSRF guard to claim otherwise.
 
@@ -475,7 +515,7 @@ npm run preview
 | Check | Expected result / qualification |
 | --- | --- |
 | `npm install` with pinned Node | Dependencies install; npm scripts exist. Bun users can use the committed `bun.lock`. No npm lockfile is provided, so npm dependency resolution is not fully frozen. |
-| `npx supabase start` then `db reset` | With Docker: migrations apply and seed loads; needs verification on a Docker machine. Destructive only to the selected local database. |
+| `npm run check:local` | Automated Docker acceptance check in a sanitized temporary committed snapshot; also runs in GitHub Actions. Requires Docker/Bun/free ports. No successful Docker run recorded in this sandbox. |
 | `npm run test` | Unit/fixture tests, including fresh migration replay and seed duplication checks, pass without AI or live Moodle. |
 | Sign up/sign in | Requires correctly configured Supabase URL/key, Auth redirects and confirmation if enabled. |
 | No LMS connection | Connect prompt, not a crash. |
@@ -555,7 +595,7 @@ Open-ended work uses its weekly slice; fixed/manual estimates account for saved 
 
 | Acceptance item | Status |
 | --- | --- |
-| Empty-database `supabase db reset` succeeds | **Not certified:** no Docker/Podman in this sandbox. Ordered migrations and seed can be replayed in isolated PostgreSQL tests, but a full Supabase reset still needs a Docker verification. |
+| Empty-database `supabase db reset` succeeds | **Check added, execution pending:** `npm run check:local` and Docker-enabled GitHub Actions verify real local migration replay and seed. No Docker/Podman in this sandbox; do not interpret this as a recorded pass. |
 | Seed contains red/amber/green on first load | **Database fixture present:** 1/1/9 states, one urgent high-effort item. **Not automatic UI integration** with MockProvider or a newly signed-up user's UUID. |
 | Demo works with no Moodle/model/YouTube | **Partial:** existing mock main surfaces do; fully populated fresh calibration, persisted demo and automatic demo default do not. |
 | `npm run build` succeeds | Checked by the editor's automatic build, not manually run by this agent; see the audit notes for the actual observed result. |

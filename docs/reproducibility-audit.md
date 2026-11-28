@@ -2,6 +2,34 @@
 
 Reviewed 28 November 2026 (UTC). This is packaging evidence, not certification of a clean hosted deployment.
 
+## Docker-enabled follow-up check
+
+Added `npm run check:local` and `.github/workflows/local-clean-clone.yml` for
+Docker-enabled Ubuntu CI and local machines. The runner exports a sanitized
+committed `HEAD` into a temporary directory, installs the frozen Bun lockfile,
+uses Supabase CLI 2.67.1 and starts a uniquely named disposable local stack.
+It explicitly resets only that stack with `db reset --local` and verifies:
+
+- Real PostgreSQL migration history, all ten tables, RLS and each CRUD grant.
+- Exact seed counts/mix, urgent deadline, buffer states, calibration samples,
+  steps for every assignment and repeat-seed preservation of changed progress.
+- Real local Auth signup, cross-account API isolation and completion RPC
+  persistence/read-back; fixture rows remain hidden from new accounts.
+- Anonymous rejection at all three local function endpoints, regression tests,
+  and the locally started front end's sign-in page response.
+
+No hosted configuration, management token, Moodle token or model key is used.
+CLI/session output is not echoed. Temporary services and source are cleaned up
+on normal exit. Checkpoints report the failing stage without credential output.
+An abrupt external termination can leave a uniquely named stack for manual cleanup.
+
+**Execution status:** the new safety/fixture contract tests and existing migration
+and function packaging tests pass (17 checks across three files). The runner
+correctly exits nonzero at its Docker prerequisite in this sandbox, which has no
+Docker executable. Full Docker acceptance is still pending a successful Actions
+or local run; no CI run was triggered or observed here. This is not a signed-in
+browser walkthrough, a deployed-function parity check or external integration test.
+
 ## Completed packaging
 
 - Replaced `README.md` with the actual Node requirement, complete hosted/local instructions, credential acquisition, environment reference, demo limits, troubleshooting and an acceptance checklist.

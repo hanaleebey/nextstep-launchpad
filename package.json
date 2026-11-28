@@ -13,7 +13,8 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "security:test": "node scripts/security-run.mjs",
-    "security:pdf": "node scripts/build-security-pdf.mjs"
+    "security:pdf": "node scripts/build-security-pdf.mjs",
+    "check:local": "node scripts/check-local-setup.mjs"
   },
   "overrides": {
     "rolldown": "1.2.1"

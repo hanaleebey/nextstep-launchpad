@@ -1,4 +1,5 @@
 # Reproducible clean-clone packaging
+- [x] Add Docker-backed committed-snapshot runner and GitHub Actions workflow for local services, migrations, seed, Auth, RLS and persisted completion; 17 focused tests pass and missing-Docker failure verified.
 - [x] Audit migrations against code/live schema; append missing fields/indexes through the migration tool.
 - [x] Add idempotent public-table fixture seed/local config; verify with isolated PostgreSQL replay and 184 passing tests.
 - [x] Add root environment example, remove source project binding, document exact platform refusals and credential inventory.
